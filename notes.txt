@@ -1,0 +1,10 @@
+estaria bueno tener un TAD para manejar memoria compartida
+
+y se puede hacer otro TAD que sea medio wrapper de este pero ya pensado en el juego
+
+comunicacion entre la vista y el master
+La vista deberia poder acceder a un metodo de alto nivel que sea decirle al master -> ya termine
+La vista es independiente de como esta hecho lo de los semaforos
+
+Hay que tener en cuenta el uso excesivo de comentarios (no esta bueno)
+menos es mas, estaria bueno que el codigo hable por si solo
