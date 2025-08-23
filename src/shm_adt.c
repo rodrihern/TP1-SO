@@ -1,4 +1,4 @@
-#include "shared_memory_adt.h"
+#include "shm_adt.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -15,4 +15,4 @@ typedef struct {
     void*   addr;         // puntero al mmap
     bool    owner;        // true si este proceso la creó
     char    name[64];     // nombre POSIX, ej "/game_state"
-} shared_memory_cdt;
+} shm_cdt;
