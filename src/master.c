@@ -1,5 +1,7 @@
 // master.c
+//Habilita funcionalidades POSIX (p. ej. clock_gettime, pselect, etc.) según el estándar 2008.
 #define _POSIX_C_SOURCE 200809L
+//Incluye librerías para IPC, procesos, timers, SHM y multiplexación de E/S.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,15 +19,16 @@
 
 /* ---------- helpers de sincronización (lectores/escritor) ---------- */
 static inline void reader_enter(game_sync_t *s) {
-    sem_wait(&s->writer_mutex);
-    sem_wait(&s->reader_count_mutex);
+    sem_wait(&s->writer_mutex); 
+    sem_wait(&s->reader_count_mutex); 
     if (++s->reader_count == 1) sem_wait(&s->state_mutex);
-    sem_post(&s->reader_count_mutex);
-    sem_post(&s->writer_mutex);
+    sem_post(&s->reader_count_mutex); //NO SIGNIFICA YA TERMINE DE LEER, SIGNIFICA YA TERMINE MI ENTRADA
+    sem_post(&s->writer_mutex); //EVITA QUE LOS LECTORES SE SIGAN METIENDO SI UN ESCRITOR ESTA ESPERANDO
 }
+
 static inline void reader_exit(game_sync_t *s) {
     sem_wait(&s->reader_count_mutex);
-    if (--s->reader_count == 0) sem_post(&s->state_mutex);
+    if (--s->reader_count == 0) sem_post(&s->state_mutex); 
     sem_post(&s->reader_count_mutex);
 }
 static inline void writer_enter(game_sync_t *s) {
