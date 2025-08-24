@@ -16,33 +16,17 @@
 
 #include "common.h"
 #include "shm.h"
-
-/* ---------- helpers de sincronización (lectores/escritor) ---------- */
-static inline void reader_enter(game_sync_t *s) {
-    sem_wait(&s->writer_mutex); 
-    sem_wait(&s->reader_count_mutex); 
-    if (++s->reader_count == 1) sem_wait(&s->state_mutex);
-    sem_post(&s->reader_count_mutex); //NO SIGNIFICA YA TERMINE DE LEER, SIGNIFICA YA TERMINE MI ENTRADA
-    sem_post(&s->writer_mutex); //EVITA QUE LOS LECTORES SE SIGAN METIENDO SI UN ESCRITOR ESTA ESPERANDO
-}
-
-static inline void reader_exit(game_sync_t *s) {
-    sem_wait(&s->reader_count_mutex);
-    if (--s->reader_count == 0) sem_post(&s->state_mutex); 
-    sem_post(&s->reader_count_mutex);
-}
-static inline void writer_enter(game_sync_t *s) {
-    sem_wait(&s->writer_mutex);
-    sem_wait(&s->state_mutex);
-}
-static inline void writer_exit(game_sync_t *s) {
-    sem_post(&s->state_mutex);
-    sem_post(&s->writer_mutex);
-}
+#include "reader_sync.h"
+#include "writer_sync.h"
 
 /* ---------------------------- utilidades --------------------------- */
-static void die(const char *m) { perror(m); exit(1); }
-static int clampi(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+static void die(const char *m) { 
+    perror(m); 
+    exit(1); 
+}
+static int clampi(int v,int lo,int hi){ 
+    return v<lo?lo:(v>hi?hi:v); 
+}
 
 static void init_board(game_state_t *gs, unsigned seed){
     srand(seed);
@@ -73,10 +57,16 @@ static int apply_move(game_state_t *gs, int pid_idx, unsigned char dir){
     int W=gs->board_width, H=gs->board_height;
     int nx = (int)gs->players[pid_idx].x + dx;
     int ny = (int)gs->players[pid_idx].y + dy;
-    if (!is_inside(nx,ny,W,H)) { gs->players[pid_idx].invalid_moves++; return 0; }
+    if (!is_inside(nx,ny,W,H)) { 
+        gs->players[pid_idx].invalid_moves++; 
+        return 0; 
+    }
 
     int *cell = &gs->board[idx(nx,ny,W)];
-    if (!cell_is_free(*cell)) { gs->players[pid_idx].invalid_moves++; return 0; }
+    if (!cell_is_free(*cell)) { 
+        gs->players[pid_idx].invalid_moves++; 
+        return 0; 
+    }
 
     gs->players[pid_idx].x = (unsigned short)nx;
     gs->players[pid_idx].y = (unsigned short)ny;
@@ -87,7 +77,12 @@ static int apply_move(game_state_t *gs, int pid_idx, unsigned char dir){
 }
 
 /* ----------------------------- main ------------------------------- */
-typedef struct { int rfd; int wfd; pid_t pid; int alive; } pipe_info_t;
+typedef struct { 
+    int rfd; 
+    int wfd; 
+    pid_t pid; 
+    int alive; 
+} pipe_info_t;
 
 int main(int argc, char **argv){
     /* defaults */
@@ -99,27 +94,44 @@ int main(int argc, char **argv){
     /* parseo simple */
     for (int i=1;i<argc;i++){
         if (!strcmp(argv[i],"-w") && i+1<argc) W=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-h") && i+1<argc) H=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-d") && i+1<argc) delay_ms=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-t") && i+1<argc) timeout_s=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-s") && i+1<argc) seed=(unsigned)atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-v") && i+1<argc) view_bin=argv[++i];
+        else if (!strcmp(argv[i],"-h") && i+1<argc) 
+            H=atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-d") && i+1<argc) 
+            delay_ms=atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-t") && i+1<argc) 
+            timeout_s=atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-s") && i+1<argc) 
+            seed=(unsigned)atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-v") && i+1<argc) 
+            view_bin=argv[++i];
         else if (!strcmp(argv[i],"-p")){
-            while (i+1<argc && P<MAX_PLAYERS && argv[i+1][0]!='-') player_bins[P++]=argv[++i];
-        } else { fprintf(stderr,"arg desconocido: %s\n", argv[i]); return ERROR_INVALID_ARGS; }
+            while (i+1<argc && P<MAX_PLAYERS && argv[i+1][0]!='-') 
+                player_bins[P++]=argv[++i];
+        } 
+        else { 
+            fprintf(stderr,"arg desconocido: %s\n", argv[i]); 
+            return ERROR_INVALID_ARGS; 
+        }
     }
     W = clampi(W, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
     H = clampi(H, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
-    if (P<1){ fprintf(stderr,"Se requiere al menos 1 jugador con -p\n"); return ERROR_INVALID_ARGS; }
+    if (P<1){ 
+        fprintf(stderr,"Se requiere al menos 1 jugador con -p\n"); 
+        return ERROR_INVALID_ARGS; 
+    }
 
     /* SHM: abrir/crear con tu API */
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) die("shm_region_open state");
-    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) die("shm_region_open sync");
+    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) 
+        die("shm_region_open state");
+    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) 
+        die("shm_region_open sync");
 
     game_state_t *gs=NULL; game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) die("game_state_map");
-    if (game_sync_map(sync_h, &sync) == -1) die("game_sync_map");
+    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) 
+        die("game_state_map");
+    if (game_sync_map(sync_h, &sync) == -1) 
+        die("game_sync_map");
 
     /* inicialización de estado */
     writer_enter(sync);
@@ -174,21 +186,29 @@ int main(int argc, char **argv){
     }
 
     /* habilitar primer movimiento */
-    for (unsigned i=0;i<gs->num_players;i++) sem_post(&sync->player_ready[i]);
+    for (unsigned i=0;i<gs->num_players;i++)
+        sem_post(&sync->player_ready[i]);
 
-    /* primer print si hay vista */
-    if (view_bin){ sem_post(&sync->view_ready); sem_wait(&sync->view_done); }
+    /* primer print al iniciar si hay vista */
+    if (view_bin){ 
+        sem_post(&sync->view_ready); // A++ (le avisa a la vista que hay cambios por imprimir)
+        sem_wait(&sync->view_done); // B-- (espera a que la vista termine de imprimir)
+    }
 
     /* main loop */
-    struct timespec last_valid; clock_gettime(CLOCK_MONOTONIC, &last_valid);
+    struct timespec last_valid; 
+    clock_gettime(CLOCK_MONOTONIC, &last_valid);
     unsigned next_idx = 0;
 
     while (1){
         /* timeout global */
-        struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+        struct timespec now; 
+        clock_gettime(CLOCK_MONOTONIC, &now);
         if ((now.tv_sec - last_valid.tv_sec) > timeout_s) {
             writer_enter(sync); gs->game_finished = true; writer_exit(sync);
-            if (view_bin){ sem_post(&sync->view_ready); }
+            if (view_bin){ 
+                sem_post(&sync->view_ready); 
+            }
             break;
         }
 
@@ -203,7 +223,8 @@ int main(int argc, char **argv){
             if (blocked) continue;
 
             /* ¿hay byte en pipe? */
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(pipes[i].rfd, &rfds);
+            fd_set rfds; FD_ZERO(&rfds); 
+            FD_SET(pipes[i].rfd, &rfds);
             struct timeval tv = {0,0};
             int r = select(pipes[i].rfd+1, &rfds, NULL, NULL, &tv);
             if (r<=0 || !FD_ISSET(pipes[i].rfd, &rfds)) continue;
@@ -229,13 +250,20 @@ int main(int argc, char **argv){
             was_valid = apply_move(gs, (int)i, dir);
             writer_exit(sync);
 
-            if (was_valid) clock_gettime(CLOCK_MONOTONIC, &last_valid);
+            if (was_valid) 
+                clock_gettime(CLOCK_MONOTONIC, &last_valid);
 
-            /* notificar vista */
-            if (view_bin){ sem_post(&sync->view_ready); sem_wait(&sync->view_done); }
+            /* notificar vista (luego de procesar CADA solicitud) */
+            if (view_bin){ 
+                sem_post(&sync->view_ready); // A++ (le avisa a la vista que hay cambios por imprimir)
+                sem_wait(&sync->view_done); // B-- (espera a que la vista termine de imprimir)
+            }
 
             /* delay */
-            struct timespec ts={ .tv_sec=delay_ms/1000, .tv_nsec=(delay_ms%1000)*1000000L };
+            struct timespec ts={ 
+                .tv_sec=delay_ms/1000,
+                .tv_nsec=(delay_ms%1000)*1000000L 
+            };
             nanosleep(&ts,NULL);
 
             /* habilitar próximo movimiento del mismo jugador */
@@ -249,24 +277,36 @@ int main(int argc, char **argv){
         int any_unblocked = 0;
         reader_enter(sync);
         for (unsigned i=0;i<gs->num_players;i++){
-            if (!gs->players[i].is_blocked){ any_unblocked=1; break; }
+            if (!gs->players[i].is_blocked){ 
+                any_unblocked=1; 
+                break; 
+            }
         }
         reader_exit(sync);
         if (!any_unblocked){
-            writer_enter(sync); gs->game_finished = true; writer_exit(sync);
-            if (view_bin){ sem_post(&sync->view_ready); }
+            writer_enter(sync); 
+            gs->game_finished = true; writer_exit(sync);
+            if (view_bin){ 
+                sem_post(&sync->view_ready); 
+            }
             break;
         }
 
         if (!progressed){
-            struct timespec tiny={0,5*1000000L}; nanosleep(&tiny,NULL); // 5ms
+            struct timespec tiny={0,5*1000000L}; 
+            nanosleep(&tiny,NULL); // 5ms
         }
     }
 
-    /* esperar hijos y reportar puntajes */
     int status;
+
+    if (view_pid>0) // Si existe el proceso vista...
+        waitpid(view_pid,&status,0); // ...espera a que termine el proceso vista
+
+    /* esperar hijos y reportar puntajes */
     for (unsigned i=0;i<gs->num_players;i++){
-        if (pipes[i].pid>0) waitpid(pipes[i].pid,&status,0);
+        if (pipes[i].pid>0) 
+            waitpid(pipes[i].pid,&status,0); // Espera a que termine el proceso del jugador
         reader_enter(sync);
         printf("Player %u (pid=%d): score=%u V=%u I=%u%s\n",
             i,(int)gs->players[i].pid, gs->players[i].score,
@@ -275,7 +315,7 @@ int main(int argc, char **argv){
         reader_exit(sync);
         close(pipes[i].rfd);
     }
-    if (view_pid>0) waitpid(view_pid,&status,0);
+    
 
     /* limpiar SHM (el unlink lo hace solo el owner según tu shm.c) */
     game_state_unmap_destroy(state_h);

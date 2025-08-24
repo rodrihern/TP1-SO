@@ -45,13 +45,20 @@ static int unmap_if_mapped(struct shm_cdt *r) { //Desmapea si hay algo mapeado. 
 /*                      API genérica de región SHM                      */
 /* =================================================================== */
 int shm_region_open(shm_adt *pr, const char *name, size_t size) {
-    if (!pr || !name || size == 0) { errno = EINVAL; return -1; } //Validaciones básicas.
+    if (!pr || !name || size == 0) { 
+        errno = EINVAL; 
+        return -1; 
+    } //Validaciones básicas.
 
     struct shm_cdt *r = calloc(1, sizeof(*r)); //Creamos el handle y guardamos una copia del name (lo vamos a usar en unlink).
-    if (!r) return -1;
+    if (!r) 
+        return -1;
 
     r->name = strdup(name);
-    if (!r->name) { free(r); return -1; }
+    if (!r->name) { 
+        free(r); 
+        return -1;
+    }
 
     // Intento crear. Si ya existe, la abro sin crear.
     //Permisos 0600 (lectura/escritura para el dueño).
@@ -74,7 +81,8 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
         //Si no la pudimos crear y no es porque ya existe, error real (permiso, etc.).
         if (errno != EEXIST) {
             int e = errno;
-            free(r->name); free(r);
+            free(r->name); 
+            free(r);
             errno = e;
             return -1;
         }
@@ -82,7 +90,8 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
         r->fd = shm_open(name, O_RDWR, 0600);
         if (r->fd == -1) {
             int e = errno;
-            free(r->name); free(r);
+            free(r->name); 
+            free(r);
             errno = e;
             return -1;
         }
@@ -91,7 +100,9 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
         struct stat st;
         if (fstat(r->fd, &st) == -1) {
             int e = errno;
-            close(r->fd); free(r->name); free(r);
+            close(r->fd); 
+            free(r->name); 
+            free(r);
             errno = e;
             return -1;
         }
@@ -107,7 +118,10 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
 //Cierra la región (para procesos que no son dueños o cuando no queremos destruirla).
 //Desmapea si hacía falta, cierra el fd y libera el handle.
 int shm_region_close(shm_adt r_) {
-    if (!r_) { errno = EINVAL; return -1; }
+    if (!r_) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
 
     int rc = 0;
@@ -122,9 +136,13 @@ int shm_region_close(shm_adt r_) {
 //Hace shm_unlink solo si este proceso fue el creador.
 //Ojo: unlink no desmapea ni cierra; por eso existe además *_unmap_destroy.
 int shm_region_unlink_if_owner(shm_adt r_) {
-    if (!r_) { errno = EINVAL; return -1; }
+    if (!r_) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
-    if (!r->owner) return 0;
+    if (!r->owner) 
+        return 0;
     return shm_unlink(r->name);
 }
 
@@ -133,7 +151,10 @@ int shm_region_unlink_if_owner(shm_adt r_) {
 /* =================================================================== */
 //Calcula el tamaño requerido incluyendo el array flexible board[].
 int game_state_map(shm_adt r_, unsigned short w, unsigned short h, game_state_t **out) {
-    if (!r_ || !out || w == 0 || h == 0) { errno = EINVAL; return -1; }
+    if (!r_ || !out || w == 0 || h == 0) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
 
     size_t need = game_state_size(w, h); // sizeof(game_state_t) + w*h*sizeof(int)
@@ -141,16 +162,22 @@ int game_state_map(shm_adt r_, unsigned short w, unsigned short h, game_state_t 
     // Si soy owner y no alcanza el tamaño actual, lo agrando
     //Si no somos dueños y el tamaño existente es menor al que pedimos, error (la región creada por el máster no coincide con w*h).
     if (r->owner && r->size < need) {
-        if (ensure_size(r->fd, need) == -1) return -1;
+        if (ensure_size(r->fd, need) == -1) 
+            return -1;
         r->size = need;
     }
 
     // (Re)mapear si hace falta
     if (!r->base || r->size < need) {
-        if (unmap_if_mapped(r) == -1) return -1;
-        if (!r->owner && r->size < need) { errno = EINVAL; return -1; } // región muy chica
+        if (unmap_if_mapped(r) == -1) 
+            return -1;
+        if (!r->owner && r->size < need) { 
+            errno = EINVAL; 
+            return -1; 
+        } // región muy chica
         r->base = map_rw(r->fd, r->size);
-        if (!r->base) return -1;
+        if (!r->base) 
+            return -1;
     }
 
     //Si somos dueños, inicializamos todo en cero (incluido board) y seteamos dimensiones.
@@ -171,22 +198,31 @@ int game_state_map(shm_adt r_, unsigned short w, unsigned short h, game_state_t 
 
 ///game_sync siempre vale sizeof(game_sync_t) (no hay array flexible).
 int game_sync_map(shm_adt r_, game_sync_t **out) {
-    if (!r_ || !out) { errno = EINVAL; return -1; }
+    if (!r_ || !out) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
 
     size_t need = sizeof(game_sync_t);
 
     if (r->owner && r->size < need) {
-        if (ensure_size(r->fd, need) == -1) return -1;
+        if (ensure_size(r->fd, need) == -1) 
+            return -1;
         r->size = need;
     }
 
     //Mapeo normal (mismo patrón que game_state_map).
     if (!r->base || r->size < need) {
-        if (unmap_if_mapped(r) == -1) return -1;
-        if (!r->owner && r->size < need) { errno = EINVAL; return -1; }
+        if (unmap_if_mapped(r) == -1) 
+            return -1;
+        if (!r->owner && r->size < need) { 
+            errno = EINVAL; 
+            return -1; 
+        }
         r->base = map_rw(r->fd, r->size);
-        if (!r->base) return -1;
+        if (!r->base) 
+            return -1;
     }
 
     game_sync_t *sync = (game_sync_t*)r->base;
@@ -198,22 +234,28 @@ int game_sync_map(shm_adt r_, game_sync_t **out) {
         //A: “hay cambios, imprimí”.
         //B: “ya imprimí”.
         //Inician en 0 (cerrados).
-        if (sem_init(&sync->view_ready,         1, 0) == -1) return -1; // A
-        if (sem_init(&sync->view_done,          1, 0) == -1) return -1; // B
+        if (sem_init(&sync->view_ready,         1, 0) == -1) 
+            return -1; // A
+        if (sem_init(&sync->view_done,          1, 0) == -1) 
+            return -1; // B
         // Lectores / Escritor: C, D, E + F
         //C/D/E + F: patrón lectores‑escritor sin inanición del escritor (lo pide el enunciado).
         //reader_count arranca en 0.
         //reader_count_mutex protege a F.
         //state_mutex/writer_mutex los usás para que jugadores (lectores) convivan y el máster (escritor) no se quede con hambre. (La versión exacta la definís vos, pero debe prevenir inanición del escritor.)
-        if (sem_init(&sync->writer_mutex,       1, 1) == -1) return -1; // C
-        if (sem_init(&sync->state_mutex,        1, 1) == -1) return -1; // D
-        if (sem_init(&sync->reader_count_mutex, 1, 1) == -1) return -1; // E
+        if (sem_init(&sync->writer_mutex,       1, 1) == -1) 
+            return -1; // C
+        if (sem_init(&sync->state_mutex,        1, 1) == -1) 
+            return -1; // D
+        if (sem_init(&sync->reader_count_mutex, 1, 1) == -1) 
+            return -1; // E
         sync->reader_count = 0;                                          // F
         // G[i]: un semáforo por jugador, inicialmente cerrado
         // G[i]: cada jugador solo puede enviar un movimiento cuando el máster lo habilita con sem_post(G[i]). Inician cerrados. Esto también está especificado en el enunciado.
         // Importante: pshared = 1 en todos los sem_init porque los sem_t están en SHM y deben ser visibles entre procesos (no threads del mismo proceso).
         for (int i = 0; i < MAX_PLAYERS; ++i) {
-            if (sem_init(&sync->player_ready[i], 1, 0) == -1) return -1; // G[i]
+            if (sem_init(&sync->player_ready[i], 1, 0) == -1) 
+                return -1; // G[i]
         }
     }
 
@@ -225,14 +267,19 @@ int game_sync_map(shm_adt r_, game_sync_t **out) {
 /* =================================================================== */
 //Para /game_state no hay semáforos: solo desmapeamos, cerramos y (si corresponde) unlink
 int game_state_unmap_destroy(shm_adt r_) {
-    if (!r_) { errno = EINVAL; return -1; }
+    if (!r_) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
     int rc = 0;
 
-    if (unmap_if_mapped(r) == -1) rc = -1;
-    if (close(r->fd) == -1) rc = -1;
-    if (r->owner && shm_unlink(r->name) == -1) rc = -1;
-
+    if (unmap_if_mapped(r) == -1) 
+        rc = -1;
+    if (close(r->fd) == -1) 
+        rc = -1;
+    if (r->owner && shm_unlink(r->name) == -1) 
+        rc = -1;
     free(r->name);
     free(r);
     return rc;
@@ -245,7 +292,10 @@ int game_state_unmap_destroy(shm_adt r_) {
 //4.shm_unlink (solo el dueño).
 //Esto evita leaks y cumple con la limpieza de recursos que piden.
 int game_sync_unmap_destroy(shm_adt r_) {
-    if (!r_) { errno = EINVAL; return -1; }
+    if (!r_) { 
+        errno = EINVAL; 
+        return -1; 
+    }
     struct shm_cdt *r = (struct shm_cdt*)r_;
     int rc = 0;
 
@@ -262,9 +312,12 @@ int game_sync_unmap_destroy(shm_adt r_) {
         if (e == -1) rc = -1;
     }
 
-    if (unmap_if_mapped(r) == -1) rc = -1;
-    if (close(r->fd) == -1) rc = -1;
-    if (r->owner && shm_unlink(r->name) == -1) rc = -1;
+    if (unmap_if_mapped(r) == -1) 
+        rc = -1;
+    if (close(r->fd) == -1) 
+        rc = -1;
+    if (r->owner && shm_unlink(r->name) == -1) 
+        rc = -1;
 
     free(r->name);
     free(r);

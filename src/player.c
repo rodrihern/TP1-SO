@@ -9,20 +9,7 @@
 
 #include "common.h"
 #include "shm.h"
-
-/* helpers lectores */
-static inline void reader_enter(game_sync_t *s) {
-    sem_wait(&s->writer_mutex);
-    sem_wait(&s->reader_count_mutex);
-    if (++s->reader_count == 1) sem_wait(&s->state_mutex);
-    sem_post(&s->reader_count_mutex);
-    sem_post(&s->writer_mutex);
-}
-static inline void reader_exit(game_sync_t *s) {
-    sem_wait(&s->reader_count_mutex);
-    if (--s->reader_count == 0) sem_post(&s->state_mutex);
-    sem_post(&s->reader_count_mutex);
-}
+#include "reader_sync.h"
 
 /* heurística simple: primera dirección con celda libre alrededor */
 static int pick_dir(game_state_t *gs, int me){
@@ -37,26 +24,47 @@ static int pick_dir(game_state_t *gs, int me){
 }
 
 int main(int argc, char **argv){
-    if (argc<3){ fprintf(stderr,"uso: jugador <W> <H>\n"); return ERROR_INVALID_ARGS; }
+    if (argc<3){ 
+        fprintf(stderr,"uso: jugador <W> <H>\n"); 
+        return ERROR_INVALID_ARGS; 
+    }
     int W = atoi(argv[1]), H = atoi(argv[2]);
 
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) { perror("state open"); return ERROR_SHM_ATTACH; }
-    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) { perror("sync open");  return ERROR_SHM_ATTACH; }
+    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) { 
+        perror("state open"); 
+        return ERROR_SHM_ATTACH; 
+    }
+    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) { 
+        perror("sync open");  
+        return ERROR_SHM_ATTACH; 
+    }
 
     game_state_t *gs=NULL; game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) { perror("map state"); return ERROR_SHM_ATTACH; }
-    if (game_sync_map(sync_h, &sync) == -1) { perror("map sync"); return ERROR_SHM_ATTACH; }
+    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) { 
+        perror("map state"); 
+        return ERROR_SHM_ATTACH; 
+    }
+    if (game_sync_map(sync_h, &sync) == -1) { 
+        perror("map sync"); 
+        return ERROR_SHM_ATTACH; 
+    }
 
     /* encontrar mi índice por PID */
     pid_t me = getpid();
     int me_idx = -1;
     reader_enter(sync);
     for (unsigned i=0;i<gs->num_players;i++){
-        if (gs->players[i].pid == me){ me_idx = (int)i; break; }
+        if (gs->players[i].pid == me){ 
+            me_idx = (int)i; 
+            break;
+        }
     }
     reader_exit(sync);
-    if (me_idx<0){ fprintf(stderr,"jugador: no encuentro mi PID en game_state\n"); return 2; }
+    if (me_idx<0){ 
+        fprintf(stderr,"jugador: no encuentro mi PID en game_state\n"); 
+        return 2; 
+    }
 
     /* bucle principal */
     while (1){
@@ -81,7 +89,8 @@ int main(int argc, char **argv){
             break;
         } else {
             unsigned char b = (unsigned char)dir;
-            if (write(1, &b, 1) < 0) break;
+            if (write(1, &b, 1) < 0) 
+                break;
         }
         /* el master hará sem_post(player_ready[me_idx]) cuando procese */
     }
