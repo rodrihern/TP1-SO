@@ -24,10 +24,18 @@ static void die(const char *m) {
     perror(m); 
     exit(1); 
 }
+
+/**
+ * Limita el valor 'v' para que esté dentro del rango [lo, hi].
+ * Si 'v' es menor que 'lo', retorna 'lo'.
+ * Si 'v' es mayor que 'hi', retorna 'hi'.
+ * Si 'v' está en el rango, retorna 'v'.
+ */
 static int clampi(int v,int lo,int hi){ 
     return v<lo?lo:(v>hi?hi:v); 
 }
 
+// Usa la semilla para inicializar el tablero con números aleatorios
 static void init_board(game_state_t *gs, unsigned seed){
     srand(seed);
     for(int y=0;y<gs->board_height;y++)
@@ -78,66 +86,70 @@ static int apply_move(game_state_t *gs, int pid_idx, unsigned char dir){
 
 /* ----------------------------- main ------------------------------- */
 typedef struct { 
-    int rfd; 
-    int wfd; 
-    pid_t pid; 
-    int alive; 
+    int rfd; // read fd (extremo de lectura del pipe)
+    int wfd; // write fd (extremo de escritura del pipe)
+    pid_t pid; // pid del proceso hijo
+    int alive; // indica si el proceso hijo está vivo
 } pipe_info_t;
 
 int main(int argc, char **argv){
-    /* defaults */
-    int W=MIN_BOARD_SIZE, H=MIN_BOARD_SIZE, delay_ms=200, timeout_s=10;
-    unsigned seed=(unsigned)time(NULL);
+    /* Inicializo con valores por defecto */
+    int board_width=MIN_BOARD_SIZE, board_height=MIN_BOARD_SIZE, delay_ms=DEFAULT_DELAY_MS, timeout_s=DEFAULT_TIMEOUT_S;
+    unsigned seed=(unsigned)time(NULL); 
     const char *view_bin=NULL;
-    char* player_bins[MAX_PLAYERS]; int P=0;
+    char* player_bins[MAX_PLAYERS]; 
+    int num_players=0;
 
-    /* parseo simple */
+    /* Parseo de los argumentos de la línea de comandos */
     for (int i=1;i<argc;i++){
-        if (!strcmp(argv[i],"-w") && i+1<argc) W=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-h") && i+1<argc) 
-            H=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-d") && i+1<argc) 
+        if (!strcmp(argv[i],"-w") && argc>i+1) 
+            board_width=atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-h") && argc>i+1) 
+            board_height=atoi(argv[++i]);
+        else if (!strcmp(argv[i],"-d") && argc>i+1) 
             delay_ms=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-t") && i+1<argc) 
+        else if (!strcmp(argv[i],"-t") && argc>i+1) 
             timeout_s=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-s") && i+1<argc) 
+        else if (!strcmp(argv[i],"-s") && argc>i+1) 
             seed=(unsigned)atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-v") && i+1<argc) 
+        else if (!strcmp(argv[i],"-v") && argc>i+1) 
             view_bin=argv[++i];
         else if (!strcmp(argv[i],"-p")){
-            while (i+1<argc && P<MAX_PLAYERS && argv[i+1][0]!='-') 
-                player_bins[P++]=argv[++i];
+            while (argc>i+1 && num_players<MAX_PLAYERS && argv[i+1][0]!='-') 
+                player_bins[num_players++]=argv[++i];
         } 
         else { 
             fprintf(stderr,"arg desconocido: %s\n", argv[i]); 
             return ERROR_INVALID_ARGS; 
         }
     }
-    W = clampi(W, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
-    H = clampi(H, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
-    if (P<1){ 
+
+    /* Validaciones */
+    board_width = clampi(board_width, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+    board_height = clampi(board_height, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+    if (num_players<1){ 
         fprintf(stderr,"Se requiere al menos 1 jugador con -p\n"); 
         return ERROR_INVALID_ARGS; 
     }
 
     /* SHM: abrir/crear con tu API */
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) 
+    if (shm_region_open(&state_h, SHM_STATE, game_state_size(board_width,board_height)) == -1) 
         die("shm_region_open state");
     if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) 
         die("shm_region_open sync");
 
     game_state_t *gs=NULL; game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) 
+    if (game_state_map(state_h, (unsigned short)board_width, (unsigned short)board_height, &gs) == -1) 
         die("game_state_map");
     if (game_sync_map(sync_h, &sync) == -1) 
         die("game_sync_map");
 
     /* inicialización de estado */
     writer_enter(sync);
-    gs->board_width  = (unsigned short)W;
-    gs->board_height = (unsigned short)H;
-    gs->num_players  = (unsigned)P;
+    gs->board_width  = (unsigned short)board_width;
+    gs->board_height = (unsigned short)board_height;
+    gs->num_players  = (unsigned)num_players;
     gs->game_finished= false;
     init_board(gs, seed);
     place_players(gs);
@@ -145,21 +157,26 @@ int main(int argc, char **argv){
 
     /* pipes & fork jugadores */
     pipe_info_t pipes[MAX_PLAYERS] = {0};
-    for (int i=0;i<P;i++){
-        int fds[2]; if (pipe(fds)==-1) die("pipe");
-        pipes[i].rfd = fds[0]; pipes[i].wfd = fds[1]; pipes[i].alive=1;
+    for (int i=0;i<num_players;i++){
+        int fds[2]; 
+        if (pipe(fds)==-1) 
+            die("pipe");
+        pipes[i].rfd = fds[0]; 
+        pipes[i].wfd = fds[1]; 
+        pipes[i].alive=1;
         fcntl(pipes[i].rfd, F_SETFL, O_NONBLOCK);
 
         pid_t pid = fork();
-        if (pid<0) die("fork player");
+        if (pid<0) 
+            die("fork player");
         if (pid==0){
             /* hijo jugador: dup write-end -> fd=1 */
             dup2(pipes[i].wfd, 1);
             close(pipes[i].rfd);
             /* argv: width height */
             char wb[16], hb[16];
-            snprintf(wb,sizeof wb,"%d",W);
-            snprintf(hb,sizeof hb,"%d",H);
+            snprintf(wb,sizeof wb,"%d",board_width);
+            snprintf(hb,sizeof hb,"%d",board_height);
             execl(player_bins[i], player_bins[i], wb, hb, (char*)NULL);
             perror("exec player"); _exit(127);
         } else {
@@ -175,14 +192,16 @@ int main(int argc, char **argv){
     pid_t view_pid = -1;
     if (view_bin){
         pid_t vp = fork();
-        if (vp<0) die("fork view");
+        if (vp<0) 
+            die("fork view");
         if (vp==0){
             char wb[16], hb[16];
-            snprintf(wb,sizeof wb,"%d",W);
-            snprintf(hb,sizeof hb,"%d",H);
+            snprintf(wb,sizeof wb,"%d",board_width);
+            snprintf(hb,sizeof hb,"%d",board_height);
             execl(view_bin, view_bin, wb, hb, (char*)NULL);
             perror("exec view"); _exit(127);
-        } else view_pid = vp;
+        } else 
+            view_pid = vp;
     }
 
     /* habilitar primer movimiento */
@@ -220,14 +239,17 @@ int main(int argc, char **argv){
             reader_enter(sync);
             int blocked = gs->players[i].is_blocked;
             reader_exit(sync);
-            if (blocked) continue;
+            if (blocked) 
+                continue;
 
             /* ¿hay byte en pipe? */
-            fd_set rfds; FD_ZERO(&rfds); 
+            fd_set rfds; 
+            FD_ZERO(&rfds); 
             FD_SET(pipes[i].rfd, &rfds);
             struct timeval tv = {0,0};
             int r = select(pipes[i].rfd+1, &rfds, NULL, NULL, &tv);
-            if (r<=0 || !FD_ISSET(pipes[i].rfd, &rfds)) continue;
+            if (r<=0 || !FD_ISSET(pipes[i].rfd, &rfds)) 
+                continue;
 
             unsigned char dir;
             ssize_t n = read(pipes[i].rfd, &dir, 1);
@@ -240,7 +262,8 @@ int main(int argc, char **argv){
                 continue;
             }
             if (n<0){
-                if (errno==EAGAIN) continue;
+                if (errno==EAGAIN) 
+                    continue;
                 continue;
             }
 

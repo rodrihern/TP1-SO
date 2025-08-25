@@ -15,6 +15,10 @@
 #define SHM_STATE "/game_state"
 #define SHM_SYNC "/game_sync"
 
+// Valores por defecto de tiempo
+#define DEFAULT_DELAY_MS 200
+#define DEFAULT_TIMEOUT_S 10
+
 // Dimensiones y límites del juego
 #define MAX_PLAYERS 9
 #define MAX_NAME_LEN 16

@@ -17,8 +17,10 @@ static int pick_dir(game_state_t *gs, int me){
     for (unsigned char d=0; d<8; ++d){
         int dx,dy; get_direction_offset((direction_t)d, &dx, &dy);
         int nx=x+dx, ny=y+dy;
-        if (!is_inside(nx,ny,gs->board_width,gs->board_height)) continue;
-        if (cell_is_free(gs->board[idx(nx,ny,gs->board_width)])) return d;
+        if (!is_inside(nx,ny,gs->board_width,gs->board_height)) 
+            continue;
+        if (cell_is_free(gs->board[idx(nx,ny,gs->board_width)])) 
+            return d;
     }
     return -1;
 }
