@@ -38,6 +38,7 @@
 #define ERROR_PROCESS_CREATE -4
 #define ERROR_TIMEOUT -5
 #define ERROR_GAME_OVER -6
+#define EXEC_ERROR_CODE 127
 
 /*
  * =============================================================================
