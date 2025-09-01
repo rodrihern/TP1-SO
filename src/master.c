@@ -307,7 +307,7 @@ int main(int argc, char **argv){
             sem_post(&sync->player_ready[i]);
 
             progressed = 1;
-        }
+        } 
         next_idx = (next_idx + 1) % gs->num_players;
 
         // ¿terminó porque todos están bloqueados? 
@@ -354,7 +354,7 @@ int main(int argc, char **argv){
     }
     
 
-    // limpiar SHM (el unlink lo hace solo el owner según tu shm.c) 
+    // limpiar SHM  
     game_state_unmap_destroy(game_state_shm);
     game_sync_unmap_destroy(game_syng_shm);
     return SUCCESS;
