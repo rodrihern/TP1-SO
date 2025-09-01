@@ -12,7 +12,7 @@
 
 
 static void print_state(game_state_t *gs){
-    /* limpiar pantalla */
+    // Limpiar pantalla
     printf("\033[H\033[J");
     printf("ChompChamps %ux%u  players=%u  finished=%d\n",
            gs->board_width, gs->board_height, gs->num_players, gs->game_finished);
@@ -22,17 +22,16 @@ static void print_state(game_state_t *gs){
                i,(int)p->pid, p->is_blocked?" [BLOCKED]":"",
                p->x,p->y,p->score,p->valid_moves,p->invalid_moves);
     }
-    /* recorte de tablero para no inundar */
-    unsigned W=gs->board_width, H=gs->board_height;
-    unsigned w=W>40?40:W, h=H>20?20:H;
+    // recorte de tablero para no inundar 
+    unsigned width=gs->board_width, height=gs->board_height;
     puts("Board:");
-    for (unsigned y=0;y<h;y++){
-        for (unsigned x=0;x<w;x++){
-            int v = gs->board[idx(x,y,W)];
-            if (v<=0) 
-                printf("%2d ", v); 
+    for (unsigned y=0;y<height;y++){
+        for (unsigned x=0;x<width;x++){
+            int value = gs->board[idx(x,y,width)];
+            if (value <=0) 
+                printf("%2d ", value); 
             else 
-                printf(" %d ", v);
+                printf("%d ", value);
         }
         putchar('\n');
     }
