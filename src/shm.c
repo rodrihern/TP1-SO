@@ -58,18 +58,18 @@ static int init_game_sync_semaphores(game_sync_t *sync){
     //A: “hay cambios, imprimí”.
     //B: “ya imprimí”.
     //Inician en 0 (cerrados).
-    if (sem_init(&sync->view_ready,         1, 0) == -1) 
+    if (sem_init(&sync->view_ready, 1, 0) == -1) 
         return -1; // A
-    if (sem_init(&sync->view_done,          1, 0) == -1) 
+    if (sem_init(&sync->view_done, 1, 0) == -1) 
         return -1; // B
     // Lectores / Escritor: C, D, E + F
     //C/D/E + F: patrón lectores‑escritor sin inanición del escritor (lo pide el enunciado).
     //reader_count arranca en 0.
     //reader_count_mutex protege a F.
     //state_mutex/writer_mutex los usás para que jugadores (lectores) convivan y el máster (escritor) no se quede con hambre. (La versión exacta la definís vos, pero debe prevenir inanición del escritor.)
-    if (sem_init(&sync->writer_mutex,       1, 1) == -1) 
+    if (sem_init(&sync->writer_mutex, 1, 1) == -1) 
         return -1; // C
-    if (sem_init(&sync->state_mutex,        1, 1) == -1) 
+    if (sem_init(&sync->state_mutex, 1, 1) == -1) 
         return -1; // D
     if (sem_init(&sync->reader_count_mutex, 1, 1) == -1) 
         return -1; // E
@@ -106,8 +106,9 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
     }
 
     // Intento crear la shm. Si ya existe, falla con EEXIST
-    // Permisos 0600 (lectura/escritura solo para el dueño).
-    r->fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+    // Usamos permisos 0666 (respetando umask) para permitir que otros procesos/usuarios abran la SHM.
+    // Esto evita EACCES cuando, por ejemplo, distintos binarios/tests comparten los mismos nombres.
+    r->fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
 
     if (r->fd != -1) { // Caso 1: Si la creación salió bien, somos dueños
         r->owner = true;
@@ -120,8 +121,12 @@ int shm_region_open(shm_adt *pr, const char *name, size_t size) {
             errno = e;
             return -1; 
         }
+        // Aseguramos permisos amplios incluso si la umask del proceso es restrictiva
+        (void)fchmod(r->fd, 0666);
     } else if (errno == EEXIST) { // Caso 2: Si falló porque ya existía. Solo abrir
-        r->fd = shm_open(name, O_RDWR, 0600);
+        // Abrimos en RW; si el creador la dejó con permisos restrictivos podría fallar con EACCES.
+        // En ese caso, el caller verá errno=EACCES. Ver notas en README: limpiar SHM o alinear permisos.
+        r->fd = shm_open(name, O_RDWR, 0666);
 
         if (r->fd == -1) {
             int e = errno;

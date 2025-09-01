@@ -236,7 +236,7 @@ static inline bool is_valid_direction(unsigned char dir) {
  * @return Tamaño en bytes de la estructura completa
  */
 static inline size_t game_state_size(int width, int height) {
-    return sizeof( game_state_t) + (width * height * sizeof(int));
+    return sizeof(game_state_t) + (width * height * sizeof(int));
 }
 
 #endif // COMMON_H

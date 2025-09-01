@@ -1,4 +1,3 @@
-// vista.c
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +51,7 @@ int main(int argc, char **argv){
         perror("state open"); 
         return ERROR_SHM_ATTACH; 
     }
-    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) { 
+    if (shm_region_open(&sync_h, SHM_SYNC, sizeof(game_sync_t)) == -1) { 
         perror("sync open");  
         return ERROR_SHM_ATTACH; 
     }
