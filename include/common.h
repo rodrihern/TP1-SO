@@ -11,6 +11,8 @@
  * =============================================================================
  */
 
+#define NUM_DIRECTIONS 8
+
 // Nombres de las memorias compartidas
 #define SHM_STATE "/game_state"
 #define SHM_SYNC "/game_sync"

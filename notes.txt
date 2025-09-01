@@ -8,3 +8,6 @@ La vista es independiente de como esta hecho lo de los semaforos
 
 Hay que tener en cuenta el uso excesivo de comentarios (no esta bueno)
 menos es mas, estaria bueno que el codigo hable por si solo
+
+git hook 
+tidy mejor q formatter

@@ -12,14 +12,15 @@
 #include "reader_sync.h"
 
 /* heurística simple: primera dirección con celda libre alrededor */
-static int pick_dir(game_state_t *gs, int me){
-    int x = gs->players[me].x, y = gs->players[me].y;
-    for (unsigned char d=0; d<8; ++d){
-        int dx,dy; get_direction_offset((direction_t)d, &dx, &dy);
-        int nx=x+dx, ny=y+dy;
-        if (!is_inside(nx,ny,gs->board_width,gs->board_height)) 
+static int pick_dir(game_state_t *game_state, int me){
+    int current_x = game_state->players[me].x, current_y = game_state->players[me].y;
+    for (unsigned char d=0; d<NUM_DIRECTIONS; ++d){
+        int dx,dy; 
+        get_direction_offset((direction_t)d, &dx, &dy);
+        int nx=current_x+dx, ny=current_y+dy;
+        if (!is_inside(nx,ny,game_state->board_width,game_state->board_height)) 
             continue;
-        if (cell_is_free(gs->board[idx(nx,ny,gs->board_width)])) 
+        if (cell_is_free(game_state->board[idx(nx,ny,game_state->board_width)])) 
             return d;
     }
     return -1;
@@ -30,20 +31,21 @@ int main(int argc, char **argv){
         fprintf(stderr,"uso: jugador <W> <H>\n"); 
         return ERROR_INVALID_ARGS; 
     }
-    int W = atoi(argv[1]), H = atoi(argv[2]);
+    int width = atoi(argv[1]), height = atoi(argv[2]);
 
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) { 
+    if (shm_region_open(&state_h, SHM_STATE, game_state_size(width,height)) == -1) { 
         perror("state open"); 
         return ERROR_SHM_ATTACH; 
     }
-    if (shm_region_open(&sync_h,  SHM_SYNC,  sizeof(game_sync_t))       == -1) { 
+    if (shm_region_open(&sync_h,  SHM_SYNC, sizeof(game_sync_t)) == -1) { 
         perror("sync open");  
         return ERROR_SHM_ATTACH; 
     }
 
-    game_state_t *gs=NULL; game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) { 
+    game_state_t *game_state=NULL; 
+    game_sync_t *sync=NULL;
+    if (game_state_map(state_h, (unsigned short)width, (unsigned short)height, &game_state) == -1) { 
         perror("map state"); 
         return ERROR_SHM_ATTACH; 
     }
@@ -56,8 +58,8 @@ int main(int argc, char **argv){
     pid_t me = getpid();
     int me_idx = -1;
     reader_enter(sync);
-    for (unsigned i=0;i<gs->num_players;i++){
-        if (gs->players[i].pid == me){ 
+    for (unsigned i=0;i<game_state->num_players;i++){
+        if (game_state->players[i].pid == me){ 
             me_idx = (int)i; 
             break;
         }
@@ -75,13 +77,13 @@ int main(int argc, char **argv){
 
         /* check fin de juego */
         reader_enter(sync);
-        int finished = gs->game_finished;
+        int finished = game_state->game_finished;
         reader_exit(sync);
         if (finished) break;
 
         /* decidir movimiento */
         reader_enter(sync);
-        int dir = pick_dir(gs, me_idx);
+        int dir = pick_dir(game_state, me_idx);
         reader_exit(sync);
 
         if (dir < 0){
