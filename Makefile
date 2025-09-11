@@ -10,7 +10,7 @@ catedra: all
 
 CC=gcc
 CFLAGS=-Wall -g -Iinclude -pthread
-LDFLAGS=-lrt -pthread
+LDFLAGS=-lrt -pthread -lncurses
 
 SRC_DIR=src
 OBJ_DIR=obj

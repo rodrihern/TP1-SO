@@ -1,0 +1,1 @@
+./bin/master -v ./bin/view -p ./bin/player ./bin/player ./bin/player
