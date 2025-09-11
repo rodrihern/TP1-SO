@@ -1,4 +1,6 @@
 
+.DEFAULT_GOAL := all
+
 run: all
 	./bin/master -v ./bin/view -p ./bin/player ./bin/player
 
@@ -14,7 +16,8 @@ SRC_DIR=src
 OBJ_DIR=obj
 BIN_DIR=bin
 
-all: $(BIN_DIR)/master $(BIN_DIR)/player $(BIN_DIR)/view
+# Fuerza recompilación completa: limpia y luego compila
+all: clean $(BIN_DIR)/master $(BIN_DIR)/player $(BIN_DIR)/view
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
