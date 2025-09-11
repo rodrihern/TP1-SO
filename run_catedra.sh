@@ -26,4 +26,4 @@ if [[ $# -eq 1 ]]; then
 	fi
 fi
 
-exec ./bin/master -v ./bin/view -p "${players[@]}"
+exec ./master_catedra -v ./bin/view -p "${players[@]}"
