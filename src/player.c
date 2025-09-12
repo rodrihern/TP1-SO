@@ -11,22 +11,30 @@
 #include "shm.h"
 #include "reader_sync.h"
 
-/* heurística simple: primera dirección con celda libre alrededor */
-static int pick_dir(game_state_t *game_state, int me){
-    int current_x = game_state->players[me].x, current_y = game_state->players[me].y;
-    for (unsigned char d=0; d<NUM_DIRECTIONS; ++d){
-        int dx,dy; 
-        get_direction_offset((direction_t)d, &dx, &dy);
-        int nx=current_x+dx, ny=current_y+dy;
-        if (!is_inside(nx,ny,game_state->board_width,game_state->board_height)) 
-            continue;
-        if (cell_is_free(game_state->board[idx(nx,ny,game_state->board_width)])) 
-            return d;
-    }
-    return -1;
+
+
+
+// static int pick_dir(game_state_t *game_state, int me){
+//     int current_x = game_state->players[me].x, current_y = game_state->players[me].y;
+//     for (unsigned char d=0; d<NUM_DIRECTIONS; ++d){
+//         int dx,dy; 
+//         get_direction_offset((direction_t)d, &dx, &dy);
+//         int nx=current_x+dx, ny=current_y+dy;
+//         if (!is_inside(nx,ny,game_state->board_width,game_state->board_height)) 
+//             continue;
+//         if (cell_is_free(game_state->board[idx(nx,ny,game_state->board_width)])) 
+//             return d;
+//     }
+//     return -1;
+// }
+
+// hagamoslo greedy al amigo
+
+int pick_dir(int board[][], int width, int height, int x, int y) {
+
 }
 
-int main(int argc, char **argv){
+int main(int argc, char * argv[]){
     if (argc<3){ 
         fprintf(stderr,"uso: jugador <W> <H>\n"); 
         return ERROR_INVALID_ARGS; 
@@ -35,7 +43,7 @@ int main(int argc, char **argv){
 
     shm_adt state_h, sync_h;
     if (shm_region_open(&state_h, SHM_STATE, game_state_size(width,height)) == -1) { 
-        perror("state open"); 
+        perror("state open");  
         return ERROR_SHM_ATTACH; 
     }
     if (shm_region_open(&sync_h,  SHM_SYNC, sizeof(game_sync_t)) == -1) { 
@@ -56,47 +64,48 @@ int main(int argc, char **argv){
 
     /* encontrar mi índice por PID */
     pid_t me = getpid();
-    int me_idx = -1;
+    int my_idx = -1;
     reader_enter(sync);
     for (unsigned i=0;i<game_state->num_players;i++){
         if (game_state->players[i].pid == me){ 
-            me_idx = (int)i; 
+            my_idx = (int)i; 
             break;
         }
     }
     reader_exit(sync);
-    if (me_idx<0){ 
+    if (my_idx<0){ 
         fprintf(stderr,"jugador: no encuentro mi PID en game_state\n"); 
         return 2; 
     }
 
-    /* bucle principal */
-    while (1){
-        /* esperar a que el master procese lo anterior */
-        sem_wait(&sync->player_ready[me_idx]);
+    int * board_copy = malloc(width * height * sizeof(*board_copy));
 
-        /* check fin de juego */
+    while (1) {
+        // esperar a que pueda jugar
+        sem_wait(&sync->player_ready[my_idx]);
+
+        // checkear si termino el juego
         reader_enter(sync);
         int finished = game_state->game_finished;
         reader_exit(sync);
-        if (finished) break;
+        if (finished)
+            break;
 
-        /* decidir movimiento */
         reader_enter(sync);
-        int dir = pick_dir(game_state, me_idx);
+        // copiar el tablero
         reader_exit(sync);
 
+
         if (dir < 0){
-            /* sin movimientos -> EOF al master */
             fflush(stdout);
-            close(1);
+            close(STDOUT_FILENO);
             break;
         } else {
             unsigned char b = (unsigned char)dir;
-            if (write(1, &b, 1) < 0) 
+            if (write(STDOUT_FILENO, &b, 1) < 0) 
                 break;
         }
-        /* el master hará sem_post(player_ready[me_idx]) cuando procese */
+        
     }
 
     game_state_unmap_destroy(state_h);
