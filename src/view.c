@@ -25,6 +25,9 @@
 #define C_PLAYER_BASE 20
 
 static void ui_init(void){
+    if (getenv("TERM") == NULL) { // Nolasco dijo que esto tiene que estar que sino no anda
+        setenv("TERM", "xterm-256color", 1);
+    }
     initscr();
     cbreak();
     noecho();
@@ -62,14 +65,7 @@ static void ui_end(void){
     endwin();
 }
 
-static short color_for_reward(int v){
-    switch(v){
-        case 1: return C_REWARD1; case 2: return C_REWARD2; case 3: return C_REWARD3;
-        case 4: return C_REWARD4; case 5: return C_REWARD5; case 6: return C_REWARD6;
-        case 7: return C_REWARD7; case 8: return C_REWARD8; case 9: return C_REWARD9;
-        default: return C_DEFAULT;
-    }
-}
+// Ya no coloreamos las recompensas: se imprimen en color por defecto
 
 static short color_for_player(unsigned id){
     return C_PLAYER_BASE + (id % 9);
@@ -97,47 +93,61 @@ static int draw_players(const game_state_t *gs, int start_row){
     return row; // próxima fila libre
 }
 
-static void draw_board(const game_state_t *gs, int start_row, int start_col){
+static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
     int maxy, maxx; getmaxyx(stdscr, maxy, maxx);
-    const int cellw = 3; // " n "
-    int avail_rows = maxy - start_row - 1;
-    int avail_cols = maxx - start_col;
-    if (avail_rows <= 0 || avail_cols <= 0) return;
+    const int cellw = 4; // ancho por celda: suficiente para "p[8]" o "%3d"
 
     int bw = gs->board_width, bh = gs->board_height;
-    int draw_h = avail_rows; if (draw_h > bh) draw_h = bh;
-    int draw_w = avail_cols / cellw; if (draw_w > bw) draw_w = bw;
+    int draw_h = bh;
+    int draw_w = bw;
+    // Limitar por tamaño de terminal
+    if (draw_h > maxy - 2) draw_h = maxy - 2; // deja margen
+    if (draw_w * cellw > maxx - 2) draw_w = (maxx - 2) / cellw;
+    if (draw_h <= 0 || draw_w <= 0) return;
 
-    mvprintw(start_row, start_col, "Board (%dx%d shown of %dx%d):", draw_w, draw_h, bw, bh);
-    int row0 = start_row + 1;
+    // Centro ideal
+    int row0 = (maxy - draw_h) / 2;
+    int col0 = (maxx - draw_w * cellw) / 2;
+    // Evitar superponerse con header/lista de jugadores
+    if (row0 <= reserve_top_rows) row0 = reserve_top_rows + 1;
+    if (col0 < 0) col0 = 0;
+
+    // mvprintw(row0 - 1, col0, "Board (%dx%d shown of %dx%d):", draw_w, draw_h, bw, bh);
 
     for (int y = 0; y < draw_h; ++y){
         int sy = row0 + y; if (sy >= maxy) break;
         for (int x = 0; x < draw_w; ++x){
-            int sx = start_col + x * cellw; if (sx + (cellw-1) >= maxx) break;
+            int sx = col0 + x * cellw; if (sx + (cellw-1) >= maxx) break;
+
+            // ¿Hay un jugador parado en (x,y)?
+            int standing_pid = -1;
+            for (unsigned i = 0; i < gs->num_players; ++i){
+                const player_t *p = &gs->players[i];
+                if ((int)p->x == x && (int)p->y == y){ standing_pid = (int)i; break; }
+            }
+
+            if (standing_pid >= 0){
+                short pc = color_for_player((unsigned)standing_pid);
+                attron(COLOR_PAIR(pc) | A_BOLD);
+                // p[id] con ancho 4 (ej: p[8] )
+                mvprintw(sy, sx, "p[%d]", standing_pid);
+                attroff(COLOR_PAIR(pc) | A_BOLD);
+                continue;
+            }
+
             int v = gs->board[idx(x, y, bw)];
             if (v > 0){
-                short c = color_for_reward(v);
-                attron(COLOR_PAIR(c));
-                mvprintw(sy, sx, " %d ", v);
-                attroff(COLOR_PAIR(c));
-            } else if (v < 0){
-                int owner = -v; // dueño 1..N
-                if (owner >= 1){
-                    short pc = color_for_player((unsigned)(owner-1));
-                    attron(COLOR_PAIR(pc) | A_BOLD);
-                    // Pxx (2 dígitos)
-                    mvprintw(sy, sx, "P%02d", owner);
-                    attroff(COLOR_PAIR(pc) | A_BOLD);
-                } else {
-                    attron(COLOR_PAIR(C_DEFAULT));
-                    mvprintw(sy, sx, " · ");
-                    attroff(COLOR_PAIR(C_DEFAULT));
-                }
-            } else { // v == 0
+                // Recompensas sin color especial
                 attron(COLOR_PAIR(C_DEFAULT));
-                mvprintw(sy, sx, " · ");
+                mvprintw(sy, sx, "%3d ", v);
                 attroff(COLOR_PAIR(C_DEFAULT));
+            } else {
+                // 0 o negativo: se imprime el número tal cual, coloreado por jugador
+                unsigned pid = (unsigned)(-v);
+                short pc = color_for_player(pid);
+                attron(COLOR_PAIR(pc) | A_BOLD);
+                mvprintw(sy, sx, "%3d ", v);
+                attroff(COLOR_PAIR(pc) | A_BOLD);
             }
         }
     }
@@ -178,8 +188,8 @@ int main(int argc, char **argv){
 
         erase();
         draw_header(gs);
-        int next_row = draw_players(gs, 2);
-        draw_board(gs, next_row + 1, 0);
+    int next_row = draw_players(gs, 2);
+    draw_board_centered(gs, next_row + 1);
         mvprintw(LINES-1, 0, "q para salir");
         refresh();
 
