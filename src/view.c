@@ -25,8 +25,8 @@
 #define C_PLAYER_BASE 20
 
 static void ui_init(void){
-    if (getenv("TERM") == NULL) { // Nolasco dijo que esto tiene que estar que sino no anda
-        setenv("TERM", "xterm-256color", 1);
+    if (getenv("TERM") == NULL) { 
+        setenv("TERM", "xterm-256color", 1); // para que corra con el master de la catedra
     }
     initscr();
     cbreak();
