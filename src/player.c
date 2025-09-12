@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 
 #include "common.h"
 #include "shm.h"
@@ -30,9 +31,9 @@
 
 // hagamoslo greedy al amigo
 
-int pick_dir(int board[][], int width, int height, int x, int y) {
+int pick_dir(int board[], int width, int height, int x, int y);
 
-}
+
 
 int main(int argc, char * argv[]){
     if (argc<3){ 
@@ -92,9 +93,12 @@ int main(int argc, char * argv[]){
             break;
 
         reader_enter(sync);
-        // copiar el tablero
+        int x = game_state->players[my_idx].x;
+        int y = game_state->players[my_idx].y;
+        board_copy = memcpy(board_copy, game_state->board, width * height * sizeof(*board_copy));
         reader_exit(sync);
 
+        int dir = pick_dir(board_copy, width, height, x, y);
 
         if (dir < 0){
             fflush(stdout);
@@ -111,4 +115,23 @@ int main(int argc, char * argv[]){
     game_state_unmap_destroy(state_h);
     game_sync_unmap_destroy(sync_h);
     return SUCCESS;
+}
+
+int pick_dir(int board[], int width, int height, int x, int y) {
+    int max_score = 0;
+    int dir = -1;
+
+    for (direction_t d = 0; d < NUM_DIRECTIONS; d++) {
+        int dx, dy;
+        get_direction_offset(d, &dx, &dy);
+        if (is_inside(x+dx, y+dy, width, height)) {
+            int current_score = board[idx(x+dx, y+dy, width)];
+            if (current_score > max_score) {
+                max_score = current_score;
+                dir = d;
+            }
+        }
+    }
+
+    return dir;
 }

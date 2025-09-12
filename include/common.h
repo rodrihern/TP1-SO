@@ -53,14 +53,14 @@
  * Comenzando por UP (0) y avanzando en sentido horario
  */
 typedef enum {
-    UP = 0,        //   (0, -1)
-    UP_RIGHT = 1,  //   (1, -1)
-    RIGHT = 2,     //   (1,  0)
-    DOWN_RIGHT = 3,//   (1,  1)
-    DOWN = 4,      //   (0,  1)
-    DOWN_LEFT = 5, //   (-1, 1)
-    LEFT = 6,      //   (-1, 0)
-    LEFT_UP = 7    //   (-1,-1)
+    UP = 0,        
+    UP_RIGHT = 1,  
+    RIGHT = 2,     
+    DOWN_RIGHT = 3,
+    DOWN = 4,      
+    DOWN_LEFT = 5, 
+    LEFT = 6,      
+    LEFT_UP = 7    
 } direction_t;
 
 /*
