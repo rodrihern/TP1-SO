@@ -11,6 +11,13 @@ catedra: all
 CC=gcc
 CFLAGS=-Wall -g -Iinclude -pthread
 LDFLAGS=-lrt -pthread
+# Selección flexible de ncurses: por defecto -lncurses, se puede overridear
+# Ejemplos:
+#   make                         # usa -lncurses
+#   make NCURSES_LIB=-lncursesw  # usa la wide-char
+#   make NCURSES_LIB=            # no linkea ncurses
+NCURSES_LIB ?= -lncurses
+LDFLAGS += $(NCURSES_LIB)
 
 SRC_DIR=src
 OBJ_DIR=obj

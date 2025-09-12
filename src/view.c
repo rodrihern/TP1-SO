@@ -1,41 +1,156 @@
+// Vista ncurses a color con tablero fijo
 #define _POSIX_C_SOURCE 200809L
-#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <ncurses.h>
 
 #include "common.h"
 #include "shm.h"
 #include "reader_sync.h"
 
+// Pares de color
+#define C_DEFAULT 1
+#define C_REWARD1 2
+#define C_REWARD2 3
+#define C_REWARD3 4
+#define C_REWARD4 5
+#define C_REWARD5 6
+#define C_REWARD6 7
+#define C_REWARD7 8
+#define C_REWARD8 9
+#define C_REWARD9 10
+#define C_PLAYER_BASE 20
 
-static void print_state(game_state_t *gs){
-    // Limpiar pantalla
-    printf("\033[H\033[J");
-    printf("ChompChamps %ux%u  players=%u  finished=%d\n",
-           gs->board_width, gs->board_height, gs->num_players, gs->game_finished);
-    for (unsigned i=0;i<gs->num_players;i++){
-        player_t *p = &gs->players[i];
-        printf("P%u(pid=%d)%s  pos=(%u,%u)  score=%u  V=%u  I=%u\n",
-               i,(int)p->pid, p->is_blocked?" [BLOCKED]":"",
-               p->x,p->y,p->score,p->valid_moves,p->invalid_moves);
+static void ui_init(void){
+    if (getenv("TERM") == NULL) { 
+        setenv("TERM", "xterm-256color", 1); // para que corra con el master de la catedra
     }
-    // recorte de tablero para no inundar 
-    unsigned width=gs->board_width, height=gs->board_height;
-    puts("Board:");
-    for (unsigned y=0;y<height;y++){
-        for (unsigned x=0;x<width;x++){
-            int value = gs->board[idx(x,y,width)];
-            if (value <=0) 
-                printf("%2d ", value); 
-            else 
-                printf("%d ", value);
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(0);
+    nodelay(stdscr, TRUE); // no bloquear en getch
+    keypad(stdscr, TRUE);
+    if (has_colors()){
+        start_color();
+        use_default_colors();
+        init_pair(C_DEFAULT, COLOR_WHITE, -1);
+        init_pair(C_REWARD1, COLOR_BLUE, -1);
+        init_pair(C_REWARD2, COLOR_CYAN, -1);
+        init_pair(C_REWARD3, COLOR_GREEN, -1);
+        init_pair(C_REWARD4, COLOR_YELLOW, -1);
+        init_pair(C_REWARD5, COLOR_MAGENTA, -1);
+        init_pair(C_REWARD6, COLOR_RED, -1);
+        init_pair(C_REWARD7, COLOR_WHITE, -1);
+        init_pair(C_REWARD8, COLOR_CYAN, -1);
+        init_pair(C_REWARD9, COLOR_YELLOW, -1);
+        // Colores para jugadores (9 distintas, se cicla si hay más)
+        init_pair(C_PLAYER_BASE + 0, COLOR_RED, -1);
+        init_pair(C_PLAYER_BASE + 1, COLOR_GREEN, -1);
+        init_pair(C_PLAYER_BASE + 2, COLOR_YELLOW, -1);
+        init_pair(C_PLAYER_BASE + 3, COLOR_BLUE, -1);
+        init_pair(C_PLAYER_BASE + 4, COLOR_MAGENTA, -1);
+        init_pair(C_PLAYER_BASE + 5, COLOR_CYAN, -1);
+        init_pair(C_PLAYER_BASE + 6, COLOR_WHITE, -1);
+        init_pair(C_PLAYER_BASE + 7, COLOR_BLUE, -1);
+        init_pair(C_PLAYER_BASE + 8, COLOR_RED, -1);
+    }
+}
+
+static void ui_end(void){
+    nodelay(stdscr, FALSE);
+    endwin();
+}
+
+// Ya no coloreamos las recompensas: se imprimen en color por defecto
+
+static short color_for_player(unsigned id){
+    return C_PLAYER_BASE + (id % 9);
+}
+
+static void draw_header(const game_state_t *gs){
+    attron(A_BOLD);
+    mvprintw(0, 0, "ChompChamps %ux%u  players=%u  finished=%d",
+             gs->board_width, gs->board_height, gs->num_players, gs->game_finished);
+    attroff(A_BOLD);
+}
+
+static int draw_players(const game_state_t *gs, int start_row){
+    mvprintw(start_row, 0, "Players:");
+    int row = start_row + 1;
+    for (unsigned i = 0; i < gs->num_players; ++i){
+        const player_t *p = &gs->players[i];
+        short pc = color_for_player(i);
+        attron(COLOR_PAIR(pc));
+        mvprintw(row++, 0, "P%u(pid=%d)%s  pos=(%u,%u)  score=%u  V=%u  I=%u",
+                 i, (int)p->pid, p->is_blocked?" [BLOCKED]":"",
+                 p->x, p->y, p->score, p->valid_moves, p->invalid_moves);
+        attroff(COLOR_PAIR(pc));
+    }
+    return row; // próxima fila libre
+}
+
+static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
+    int maxy, maxx; getmaxyx(stdscr, maxy, maxx);
+    const int cellw = 4; // ancho por celda: suficiente para "p[8]" o "%3d"
+
+    int bw = gs->board_width, bh = gs->board_height;
+    int draw_h = bh;
+    int draw_w = bw;
+    // Limitar por tamaño de terminal
+    if (draw_h > maxy - 2) draw_h = maxy - 2; // deja margen
+    if (draw_w * cellw > maxx - 2) draw_w = (maxx - 2) / cellw;
+    if (draw_h <= 0 || draw_w <= 0) return;
+
+    // Centro ideal
+    int row0 = (maxy - draw_h) / 2;
+    int col0 = (maxx - draw_w * cellw) / 2;
+    // Evitar superponerse con header/lista de jugadores
+    if (row0 <= reserve_top_rows) row0 = reserve_top_rows + 1;
+    if (col0 < 0) col0 = 0;
+
+    // mvprintw(row0 - 1, col0, "Board (%dx%d shown of %dx%d):", draw_w, draw_h, bw, bh);
+
+    for (int y = 0; y < draw_h; ++y){
+        int sy = row0 + y; if (sy >= maxy) break;
+        for (int x = 0; x < draw_w; ++x){
+            int sx = col0 + x * cellw; if (sx + (cellw-1) >= maxx) break;
+
+            // ¿Hay un jugador parado en (x,y)?
+            int standing_pid = -1;
+            for (unsigned i = 0; i < gs->num_players; ++i){
+                const player_t *p = &gs->players[i];
+                if ((int)p->x == x && (int)p->y == y){ standing_pid = (int)i; break; }
+            }
+
+            if (standing_pid >= 0){
+                short pc = color_for_player((unsigned)standing_pid);
+                attron(COLOR_PAIR(pc) | A_BOLD);
+                // p[id] con ancho 4 (ej: p[8] )
+                mvprintw(sy, sx, "p[%d]", standing_pid);
+                attroff(COLOR_PAIR(pc) | A_BOLD);
+                continue;
+            }
+
+            int v = gs->board[idx(x, y, bw)];
+            if (v > 0){
+                // Recompensas sin color especial
+                attron(COLOR_PAIR(C_DEFAULT));
+                mvprintw(sy, sx, "%3d ", v);
+                attroff(COLOR_PAIR(C_DEFAULT));
+            } else {
+                // 0 o negativo: se imprime el número tal cual, coloreado por jugador
+                unsigned pid = (unsigned)(-v);
+                short pc = color_for_player(pid);
+                attron(COLOR_PAIR(pc) | A_BOLD);
+                mvprintw(sy, sx, "%3d ", v);
+                attroff(COLOR_PAIR(pc) | A_BOLD);
+            }
         }
-        putchar('\n');
     }
-    fflush(stdout);
 }
 
 int main(int argc, char **argv){
@@ -65,16 +180,28 @@ int main(int argc, char **argv){
         return ERROR_SHM_ATTACH; 
     }
 
+    ui_init();
     while (1){
         sem_wait(&sync->view_ready);
         reader_enter(sync);
         int finished = gs->game_finished;
-        print_state(gs);
+
+        erase();
+        draw_header(gs);
+    int next_row = draw_players(gs, 2);
+    draw_board_centered(gs, next_row + 1);
+        mvprintw(LINES-1, 0, "q para salir");
+        refresh();
+
         reader_exit(sync);
         sem_post(&sync->view_done);
-        if (finished) 
-            break;
+
+        int ch = getch();
+        if (ch == 'q' || ch == 'Q') break;
+        if (finished) break;
     }
+
+    ui_end();
 
     game_state_unmap_destroy(state_h);
     game_sync_unmap_destroy(sync_h);
