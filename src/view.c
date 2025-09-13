@@ -13,16 +13,7 @@
 
 // Pares de color
 #define C_DEFAULT 1
-#define C_REWARD1 2
-#define C_REWARD2 3
-#define C_REWARD3 4
-#define C_REWARD4 5
-#define C_REWARD5 6
-#define C_REWARD6 7
-#define C_REWARD7 8
-#define C_REWARD8 9
-#define C_REWARD9 10
-#define C_PLAYER_BASE 20
+#define C_PLAYER_BASE 2
 
 static void ui_init(void){
     if (getenv("TERM") == NULL) { 
@@ -38,25 +29,16 @@ static void ui_init(void){
         start_color();
         use_default_colors();
         init_pair(C_DEFAULT, COLOR_WHITE, -1);
-        init_pair(C_REWARD1, COLOR_BLUE, -1);
-        init_pair(C_REWARD2, COLOR_CYAN, -1);
-        init_pair(C_REWARD3, COLOR_GREEN, -1);
-        init_pair(C_REWARD4, COLOR_YELLOW, -1);
-        init_pair(C_REWARD5, COLOR_MAGENTA, -1);
-        init_pair(C_REWARD6, COLOR_RED, -1);
-        init_pair(C_REWARD7, COLOR_WHITE, -1);
-        init_pair(C_REWARD8, COLOR_CYAN, -1);
-        init_pair(C_REWARD9, COLOR_YELLOW, -1);
-        // Colores para jugadores (9 distintas, se cicla si hay más)
+        // Colores por jugador (fg,bg) según pedido: 
         init_pair(C_PLAYER_BASE + 0, COLOR_RED, -1);
         init_pair(C_PLAYER_BASE + 1, COLOR_GREEN, -1);
-        init_pair(C_PLAYER_BASE + 2, COLOR_YELLOW, -1);
-        init_pair(C_PLAYER_BASE + 3, COLOR_BLUE, -1);
-        init_pair(C_PLAYER_BASE + 4, COLOR_MAGENTA, -1);
+        init_pair(C_PLAYER_BASE + 2, COLOR_BLUE, -1);
+        init_pair(C_PLAYER_BASE + 3, COLOR_MAGENTA, -1);
+        init_pair(C_PLAYER_BASE + 4, COLOR_YELLOW, -1);
         init_pair(C_PLAYER_BASE + 5, COLOR_CYAN, -1);
         init_pair(C_PLAYER_BASE + 6, COLOR_WHITE, -1);
-        init_pair(C_PLAYER_BASE + 7, COLOR_BLUE, -1);
-        init_pair(C_PLAYER_BASE + 8, COLOR_RED, -1);
+        init_pair(C_PLAYER_BASE + 7, COLOR_BLACK, -1);
+        init_pair(C_PLAYER_BASE + 8, COLOR_WHITE, COLOR_BLACK);
     }
 }
 
@@ -94,7 +76,8 @@ static int draw_players(const game_state_t *gs, int start_row){
 }
 
 static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
-    int maxy, maxx; getmaxyx(stdscr, maxy, maxx);
+    int maxy, maxx; 
+    getmaxyx(stdscr, maxy, maxx);
     const int cellw = 4; // ancho por celda: suficiente para "p[8]" o "%3d"
 
     int bw = gs->board_width, bh = gs->board_height;

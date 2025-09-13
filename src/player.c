@@ -114,6 +114,7 @@ int main(int argc, char * argv[]){
 
     game_state_unmap_destroy(state_h);
     game_sync_unmap_destroy(sync_h);
+    free(board_copy);
     return SUCCESS;
 }
 
