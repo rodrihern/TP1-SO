@@ -82,7 +82,7 @@ int main(int argc, char * argv[]){
 
         int dir = pick_dir(board_copy, width, height, x, y);
 
-        if (dir < 0){
+        if (dir < 0) {
             fflush(stdout);
             close(STDOUT_FILENO);
             break;

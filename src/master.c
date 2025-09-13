@@ -341,11 +341,6 @@ int main(int argc, char **argv){
 
             // Habilitar próximo movimiento del mismo jugador
             sem_post(&sync->player_ready[i]);
-
-            // progressed = 1;
-
-            // Nota: no seguimos drenando más bytes de este jugador para mantener fairness
-            // Si querés más “throughput”, podés leer hasta vaciar (EAGAIN), pero eso sesga.
         }
 
         // Avanzar el puntero de fairness

@@ -36,9 +36,9 @@ static void ui_init(void){
         init_pair(C_PLAYER_BASE + 3, COLOR_MAGENTA, -1);
         init_pair(C_PLAYER_BASE + 4, COLOR_YELLOW, -1);
         init_pair(C_PLAYER_BASE + 5, COLOR_CYAN, -1);
-        init_pair(C_PLAYER_BASE + 6, COLOR_WHITE, -1);
-        init_pair(C_PLAYER_BASE + 7, COLOR_BLACK, -1);
-        init_pair(C_PLAYER_BASE + 8, COLOR_WHITE, COLOR_BLACK);
+        init_pair(C_PLAYER_BASE + 6, COLOR_BLACK, -1);
+        init_pair(C_PLAYER_BASE + 7, COLOR_YELLOW, COLOR_BLUE);
+        init_pair(C_PLAYER_BASE + 8, COLOR_RED, COLOR_WHITE);
     }
 }
 
