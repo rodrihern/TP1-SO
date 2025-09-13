@@ -188,7 +188,8 @@ static void init_game_state(game_sync_t *sync, game_state_t *gs, const game_args
 
 
 static pid_t spawn_view(const char *view_bin, int board_width, int board_height) {
-    if (!view_bin) return -1;
+    if (!view_bin) 
+        return -1;
     pid_t pid = fork();
     if (pid < 0)
         die("Error: could not fork view process", ERROR_FORK);
@@ -278,7 +279,8 @@ static void process_player_move(game_state_t *gs, game_sync_t *sync, pipe_info_t
     was_valid = apply_move(gs, (int)i, dir);
     writer_exit(sync);
 
-    if (was_valid) clock_gettime(CLOCK_MONOTONIC, last_valid);
+    if (was_valid) 
+        clock_gettime(CLOCK_MONOTONIC, last_valid);
 
     if (view_bin) {
         sem_post(&sync->view_ready);
@@ -305,66 +307,88 @@ static bool check_game_timeout(struct timespec *last_valid, int timeout_s, game_
     return false;
 }
 
+static bool timeout_expired(const struct timespec *last_valid, int timeout_s) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - last_valid->tv_sec) >= timeout_s;
+}
+
+static time_t remaining_time(const struct timespec *last_valid, int timeout_s) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return timeout_s - (now.tv_sec - last_valid->tv_sec);
+}
+
+static void snapshot_blocked(game_state_t *gs, game_sync_t *sync, bool blocked[]) {
+    reader_enter(sync);
+    for (unsigned i = 0; i < gs->num_players; i++)
+        blocked[i] = gs->players[i].is_blocked;
+    reader_exit(sync);
+}
+
+static unsigned build_fdset(pipe_info_t pipes[], bool blocked[], unsigned nplayers, fd_set *rfds, int *maxfd) {
+    return prepare_active_fds(pipes, blocked, nplayers, rfds, maxfd);
+}
+
+static int wait_for_activity(fd_set *rfds, int maxfd, time_t remain) {
+    struct timeval tv = { .tv_sec = remain, .tv_usec = 0 };
+    int ready = select(maxfd + 1, rfds, NULL, NULL, &tv);
+    if (ready < 0 && errno != EINTR) {
+        die("Error: select() failed while waiting for player input", ERROR_SELECT);
+    }
+    return ready;
+}
+
+static void process_ready_players(game_state_t *gs, game_sync_t *sync,pipe_info_t pipes[], fd_set *rfds, unsigned nplayers, unsigned *next_idx, struct timespec *last_valid, const char *view_bin, int delay_ms) {
+    for (unsigned step = 0; step < nplayers; step++) {
+        unsigned i = (*next_idx + step) % nplayers;
+        int fd = pipes[i].read_fd;
+        if (fd < 0 || gs->players[i].is_blocked) 
+            continue;
+        if (!FD_ISSET(fd, rfds)) 
+            continue;
+
+        process_player_move(gs, sync, &pipes[i], i, last_valid, view_bin, delay_ms);
+    }
+    *next_idx = (*next_idx + 1) % nplayers;
+}
+
+
 static void game_loop(game_state_t *gs, game_sync_t *sync, pipe_info_t pipes[], const char *view_bin, int delay_ms, int timeout_s) {
     struct timespec last_valid;
     clock_gettime(CLOCK_MONOTONIC, &last_valid);
     unsigned next_idx = 0;
 
     while (1) {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        time_t elapsed = now.tv_sec - last_valid.tv_sec;
-        if (elapsed >= timeout_s) {
+        if (timeout_expired(&last_valid, timeout_s)) {
             finish(sync, gs, view_bin);
             break;
         }
-        time_t remain = timeout_s - elapsed;
+        time_t remain = remaining_time(&last_valid, timeout_s);
+
+        bool blocked[MAX_PLAYERS];
+        snapshot_blocked(gs, sync, blocked);
 
         fd_set rfds;
-        int maxfd = -1;
-        bool blocked[MAX_PLAYERS];
-
-        reader_enter(sync);
-        for (unsigned i = 0; i < gs->num_players; i++)
-            blocked[i] = gs->players[i].is_blocked;
-        reader_exit(sync);
-
-        unsigned active_cnt = prepare_active_fds(pipes, blocked, gs->num_players, &rfds, &maxfd);
+        int maxfd;
+        unsigned active_cnt = build_fdset(pipes, blocked, gs->num_players, &rfds, &maxfd);
 
         if (active_cnt == 0) {
             finish(sync, gs, view_bin);
             break;
         }
 
-        struct timeval tv;
-        tv.tv_sec  = remain;
-        tv.tv_usec = 0;
-
-        int ready = select(maxfd + 1, &rfds, NULL, NULL, &tv);
-        if (ready < 0) {
-            if (errno == EINTR) 
-                continue;
-            die("Error: select() failed while waiting for player input", ERROR_SELECT);
-        }
+        int ready = wait_for_activity(&rfds, maxfd, remain);
+        if (ready < 0) continue;
         if (ready == 0) {
             finish(sync, gs, view_bin);
             break;
         }
 
-        for (unsigned step = 0; step < gs->num_players; step++) {
-            unsigned i = (next_idx + step) % gs->num_players;
-            int fd = pipes[i].read_fd;
-            if (fd < 0 || blocked[i]) 
-                continue;
-            if (!FD_ISSET(fd, &rfds)) 
-                continue;
-
-            process_player_move(gs, sync, &pipes[i], i, &last_valid, view_bin, delay_ms);
-        }
-
-        next_idx = (next_idx + 1) % gs->num_players;
+        process_ready_players(gs, sync, pipes, &rfds, gs->num_players, &next_idx, &last_valid, view_bin, delay_ms);
     }
 }
+
 
 static void wait_and_report_view(pid_t view_pid) {
     int status;
@@ -384,8 +408,10 @@ static void wait_and_report_players(game_state_t *gs, game_sync_t *sync, pipe_in
         int code = -1;
         if (pipes[i].pid > 0) {
             waitpid(pipes[i].pid, &status, 0);
-            if (WIFEXITED(status)) code = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) code = WTERMSIG(status);
+            if (WIFEXITED(status)) 
+                code = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status)) 
+                code = WTERMSIG(status);
         }
         unsigned score, vld, inv;
         char namebuf[MAX_NAME_LEN];

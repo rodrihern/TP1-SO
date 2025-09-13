@@ -86,9 +86,12 @@ static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
     int draw_h = bh;
     int draw_w = bw;
     // Limitar por tamaño de terminal
-    if (draw_h > maxy - 2) draw_h = maxy - 2; // deja margen
-    if (draw_w * cellw > maxx - 2) draw_w = (maxx - 2) / cellw;
-    if (draw_h <= 0 || draw_w <= 0) return;
+    if (draw_h > maxy - 2) 
+        draw_h = maxy - 2; // deja margen
+    if (draw_w * cellw > maxx - 2) 
+        draw_w = (maxx - 2) / cellw;
+    if (draw_h <= 0 || draw_w <= 0) 
+        return;
 
     // Centro ideal
     int row0 = (maxy - draw_h) / 2;
@@ -182,7 +185,8 @@ int main(int argc, char **argv){
 
     // Ignorar input: no permitir salir con 'q'
     (void)getch();
-        if (finished) break;
+        if (finished) 
+            break;
     }
 
     ui_end();
