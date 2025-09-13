@@ -31,12 +31,12 @@ static void die(const char *m) {
  * Si 'v' es mayor que 'hi', retorna 'hi'.
  * Si 'v' está en el rango, retorna 'v'.
  */
-static int clamp(int v,int lo,int hi){ 
+static int clamp(int v,int lo,int hi) { 
     return v<lo?lo:(v>hi?hi:v); 
 }
 
 // Usa la semilla para inicializar el tablero con números aleatorios
-static void init_board(game_state_t *gs, unsigned seed){
+static void init_board(game_state_t *gs, unsigned seed) {
     srand(seed);
     for(int y=0;y<gs->board_height;y++)
         for(int x=0;x<gs->board_width;x++)
@@ -109,12 +109,12 @@ int main(int argc, char **argv){
     char* player_bins[MAX_PLAYERS]; 
     int num_players=0;
 
-    // Parseo de los argumentos de la línea de comandos 
+    // Parseo de los argumentos de la línea de comandos
     for (int i=1;i<argc;i++){
         if (!strcmp(argv[i],"-w") && argc>i+1) 
             board_width=atoi(argv[++i]);
         else if (!strcmp(argv[i],"-h") && argc>i+1) 
-            board_height=atoi(argv[++i]);
+            board_height=atoi(argv[++i]); 
         else if (!strcmp(argv[i],"-d") && argc>i+1) 
             delay_ms=atoi(argv[++i]);
         else if (!strcmp(argv[i],"-t") && argc>i+1) 
@@ -141,17 +141,18 @@ int main(int argc, char **argv){
         return ERROR_INVALID_ARGS; 
     }
 
-    // SHM: abrir/crear con tu API
-    shm_adt game_state_shm, game_syng_shm;
+    // SHM: abrir/crear
+    shm_adt game_state_shm, game_sync_shm;
     if (shm_region_open(&game_state_shm, SHM_STATE, game_state_size(board_width,board_height)) == -1) 
         die("shm_region_open state");
-    if (shm_region_open(&game_syng_shm,  SHM_SYNC, sizeof(game_sync_t)) == -1) 
+    if (shm_region_open(&game_sync_shm,  SHM_SYNC, sizeof(game_sync_t)) == -1) 
         die("shm_region_open sync");
 
-    game_state_t *gs=NULL; game_sync_t *sync=NULL;
+    game_state_t *gs=NULL; 
+    game_sync_t *sync=NULL;
     if (game_state_map(game_state_shm, (unsigned short)board_width, (unsigned short)board_height, &gs) == -1) 
         die("game_state_map");
-    if (game_sync_map(game_syng_shm, &sync) == -1) 
+    if (game_sync_map(game_sync_shm, &sync) == -1) 
         die("game_sync_map");
 
     // inicialización de estado 
@@ -221,139 +222,137 @@ int main(int argc, char **argv){
     clock_gettime(CLOCK_MONOTONIC, &last_valid);
     unsigned next_idx = 0; // próximo jugador a atender (round-robin sin sesgo)
 
+    while (1) {
+        // 1) Timeout global: armá timeout relativo para select
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
 
-    // ... antes del loop: nada especial
-
-while (1) {
-    // 1) Timeout global: armá timeout relativo para select
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-
-    time_t elapsed = now.tv_sec - last_valid.tv_sec;
-    if (elapsed >= timeout_s) {
-        writer_enter(sync);
-        gs->game_finished = true;
-        writer_exit(sync);
-        if (view_bin) sem_post(&sync->view_ready);
-        break;
-    }
-    time_t remain = timeout_s - elapsed;
-
-    // 2) Armar fd_set con todos los jugadores NO bloqueados
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    int maxfd = -1;
-    unsigned active_cnt = 0;
-
-    // Tomo snapshot de bloqueados bajo lock de lector.
-    bool blocked[MAX_PLAYERS];
-    reader_enter(sync);
-    for (unsigned i = 0; i < gs->num_players; i++)
-        blocked[i] = gs->players[i].is_blocked;
-    reader_exit(sync);
-
-    for (unsigned i = 0; i < gs->num_players; i++) {
-        if (!blocked[i] && pipes[i].read_fd >= 0) {
-            FD_SET(pipes[i].read_fd, &rfds);
-            if (pipes[i].read_fd > maxfd) maxfd = pipes[i].read_fd;
-            active_cnt++;
-        }
-    }
-
-    // Si no queda nadie activo, terminá
-    if (active_cnt == 0) {
-        writer_enter(sync);
-        gs->game_finished = true;
-        writer_exit(sync);
-        if (view_bin) sem_post(&sync->view_ready);
-        break;
-    }
-
-    // 3) Dormir hasta que alguien escriba o venza el timeout global
-    struct timeval tv;
-    tv.tv_sec  = remain;
-    tv.tv_usec = 0;
-
-    int ready = select(maxfd + 1, &rfds, NULL, NULL, &tv);
-    if (ready < 0) {
-        if (errno == EINTR) continue; // reintentar si fue por señal
-        die("select");
-    }
-    if (ready == 0) {
-        // venció timeout_s sin movimientos
-        writer_enter(sync);
-        gs->game_finished = true;
-        writer_exit(sync);
-        if (view_bin) sem_post(&sync->view_ready);
-        break;
-    }
-
-    // 4) Hay al menos un fd listo: procesar en round-robin (1 mov por jugador listo)
-    // int progressed = 0;
-    for (unsigned step = 0; step < gs->num_players; step++) {
-        unsigned i = (next_idx + step) % gs->num_players;
-        int fd = pipes[i].read_fd;
-        if (fd < 0 || blocked[i]) continue;
-        if (!FD_ISSET(fd, &rfds)) continue;  // no estaba listo en esta ronda
-
-        unsigned char dir;
-        ssize_t n = read(fd, &dir, 1);
-        if (n == 0) {
-            // EOF: jugador bloqueado y saco el fd del sistema
+        time_t elapsed = now.tv_sec - last_valid.tv_sec;
+        if (elapsed >= timeout_s) {
             writer_enter(sync);
-            gs->players[i].is_blocked = true;
+            gs->game_finished = true;
             writer_exit(sync);
-            close(fd);
-            pipes[i].read_fd = -1;
-            pipes[i].alive = 0;
-            continue;
-        } else if (n < 0) {
-            if (errno == EAGAIN) continue;   // raro, pero posible: otro hilo drenó
-            // error duro: tratemos como EOF
+            if (view_bin) sem_post(&sync->view_ready);
+            break;
+        }
+        time_t remain = timeout_s - elapsed;
+
+        // 2) Armar fd_set con todos los jugadores NO bloqueados
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        int maxfd = -1;
+        unsigned active_cnt = 0;
+
+        // Tomo snapshot de bloqueados bajo lock de lector.
+        bool blocked[MAX_PLAYERS];
+        reader_enter(sync);
+        for (unsigned i = 0; i < gs->num_players; i++)
+            blocked[i] = gs->players[i].is_blocked;
+        reader_exit(sync);
+
+        for (unsigned i = 0; i < gs->num_players; i++) {
+            if (!blocked[i] && pipes[i].read_fd >= 0) {
+                FD_SET(pipes[i].read_fd, &rfds);
+                if (pipes[i].read_fd > maxfd) 
+                    maxfd = pipes[i].read_fd;
+                active_cnt++;
+            }
+        }
+
+        // Si no queda nadie activo, terminá
+        if (active_cnt == 0) {
             writer_enter(sync);
-            gs->players[i].is_blocked = true;
+            gs->game_finished = true;
             writer_exit(sync);
-            close(fd);
-            pipes[i].read_fd = -1;
-            pipes[i].alive = 0;
-            continue;
+            if (view_bin) sem_post(&sync->view_ready);
+            break; // TODO: modularizar esto de que termino el juego
         }
 
-        // Aplicar exactamente UN movimiento
-        int was_valid;
-        writer_enter(sync);
-        was_valid = apply_move(gs, (int)i, dir);
-        writer_exit(sync);
+        // 3) Dormir hasta que alguien escriba o venza el timeout global
+        struct timeval tv;
+        tv.tv_sec  = remain;
+        tv.tv_usec = 0;
 
-        if (was_valid) clock_gettime(CLOCK_MONOTONIC, &last_valid);
-
-        // Notificar vista por cada movimiento
-        if (view_bin) {
-            sem_post(&sync->view_ready);
-            sem_wait(&sync->view_done);
+        int ready = select(maxfd + 1, &rfds, NULL, NULL, &tv);
+        if (ready < 0) {
+            if (errno == EINTR) continue; // reintentar si fue por señal
+            die("select");
+        }
+        if (ready == 0) {
+            // venció timeout_s sin movimientos
+            writer_enter(sync);
+            gs->game_finished = true;
+            writer_exit(sync);
+            if (view_bin) sem_post(&sync->view_ready);
+            break;
         }
 
-        // Delay por jugada (opcional)
-        if (delay_ms > 0) {
-            struct timespec ts = { .tv_sec = delay_ms/1000,
-                                   .tv_nsec = (delay_ms%1000)*1000000L };
-            nanosleep(&ts, NULL);
+        // 4) Hay al menos un fd listo: procesar en round-robin (1 mov por jugador listo)
+        // int progressed = 0;
+        for (unsigned step = 0; step < gs->num_players; step++) {
+            unsigned i = (next_idx + step) % gs->num_players;
+            int fd = pipes[i].read_fd;
+            if (fd < 0 || blocked[i]) continue;
+            if (!FD_ISSET(fd, &rfds)) continue;  // no estaba listo en esta ronda
+
+            unsigned char dir;
+            ssize_t n = read(fd, &dir, 1);
+            if (n == 0) {
+                // EOF: jugador bloqueado y saco el fd del sistema
+                writer_enter(sync);
+                gs->players[i].is_blocked = true;
+                writer_exit(sync);
+                close(fd);
+                pipes[i].read_fd = -1;
+                pipes[i].alive = 0;
+                continue;
+            } else if (n < 0) {
+                if (errno == EAGAIN) continue;   // raro, pero posible: otro hilo drenó
+                // error duro: tratemos como EOF
+                writer_enter(sync);
+                gs->players[i].is_blocked = true;
+                writer_exit(sync);
+                close(fd);
+                pipes[i].read_fd = -1;
+                pipes[i].alive = 0;
+                continue;
+            }
+
+            // Aplicar exactamente UN movimiento
+            int was_valid;
+            writer_enter(sync);
+            was_valid = apply_move(gs, (int)i, dir);
+            writer_exit(sync);
+
+            if (was_valid) clock_gettime(CLOCK_MONOTONIC, &last_valid);
+
+            // Notificar vista por cada movimiento
+            if (view_bin) {
+                sem_post(&sync->view_ready);
+                sem_wait(&sync->view_done);
+            }
+
+            // Delay por jugada
+            if (delay_ms > 0) {
+                struct timespec ts = { .tv_sec = delay_ms/1000,
+                                    .tv_nsec = (delay_ms%1000)*1000000L };
+                nanosleep(&ts, NULL);
+            }
+
+            // Habilitar próximo movimiento del mismo jugador
+            sem_post(&sync->player_ready[i]);
+
+            // progressed = 1;
+
+            // Nota: no seguimos drenando más bytes de este jugador para mantener fairness
+            // Si querés más “throughput”, podés leer hasta vaciar (EAGAIN), pero eso sesga.
         }
 
-        // Habilitar próximo movimiento del mismo jugador
-        sem_post(&sync->player_ready[i]);
+        // Avanzar el puntero de fairness
+        next_idx = (next_idx + 1) % gs->num_players;
 
-        // progressed = 1;
-
-        // Nota: no seguimos drenando más bytes de este jugador para mantener fairness
-        // Si querés más “throughput”, podés leer hasta vaciar (EAGAIN), pero eso sesga.
+        // Acá NO hace falta un sleep “tiny”; select ya bloquea si nadie escribe
     }
-
-    // Avanzar el puntero de fairness
-    next_idx = (next_idx + 1) % gs->num_players;
-
-    // Acá NO hace falta un sleep “tiny”; select ya bloquea si nadie escribe
-}
 
 
     int status;
@@ -377,6 +376,6 @@ while (1) {
 
     // limpiar SHM  
     game_state_unmap_destroy(game_state_shm);
-    game_sync_unmap_destroy(game_syng_shm);
+    game_sync_unmap_destroy(game_sync_shm);
     return SUCCESS;
 }
