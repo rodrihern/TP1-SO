@@ -67,8 +67,8 @@ static int draw_players(const game_state_t *gs, int start_row){
         const player_t *p = &gs->players[i];
         short pc = color_for_player(i);
         attron(COLOR_PAIR(pc));
-        mvprintw(row++, 0, "P%u(pid=%d)%s  pos=(%u,%u)  score=%u  V=%u  I=%u",
-                 i, (int)p->pid, p->is_blocked?" [BLOCKED]":"",
+        mvprintw(row++, 0, "P%u %s  pos=(%u,%u)  score=%u  V=%u  I=%u",
+                 i, p->is_blocked?" [BLOCKED]":"",
                  p->x, p->y, p->score, p->valid_moves, p->invalid_moves);
         attroff(COLOR_PAIR(pc));
     }
@@ -173,14 +173,13 @@ int main(int argc, char **argv){
         draw_header(gs);
     int next_row = draw_players(gs, 2);
     draw_board_centered(gs, next_row + 1);
-        mvprintw(LINES-1, 0, "q para salir");
         refresh();
 
         reader_exit(sync);
         sem_post(&sync->view_done);
 
-        int ch = getch();
-        if (ch == 'q' || ch == 'Q') break;
+    // Ignorar input: no permitir salir con 'q'
+    (void)getch();
         if (finished) break;
     }
 

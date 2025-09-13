@@ -33,14 +33,14 @@
 #define EMPTY_CELL 0
 
 // Códigos de retorno
-#define SUCCESS 0
-#define ERROR_INVALID_ARGS -1
-#define ERROR_SHM_CREATE -2
-#define ERROR_SHM_ATTACH -3
-#define ERROR_PROCESS_CREATE -4
-#define ERROR_TIMEOUT -5
-#define ERROR_GAME_OVER -6
-#define EXEC_ERROR_CODE 127
+#define SUCCESS 0                     // No error
+#define ERROR_INVALID_ARGS -1         // Invalid command line arguments
+#define ERROR_SHM -2                  // Failed to open or create shared memory region for game state
+#define ERROR_PIPE -3                 // Failed to create pipe for player process
+#define ERROR_FORK -4                 // Failed to fork child process
+#define ERROR_SELECT -5               // select() system call failed
+#define ERROR_SHM_ATTACH -6           // Failed to attach shared memory
+#define EXEC_ERROR_CODE 127           // Exec failure (standard)
 
 /*
  * =============================================================================

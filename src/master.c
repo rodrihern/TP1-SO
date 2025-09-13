@@ -1,7 +1,6 @@
-// master.c
 //Habilita funcionalidades POSIX (p. ej. clock_gettime, pselect, etc.) según el estándar 2008.
 #define _POSIX_C_SOURCE 200809L
-//Incluye librerías para IPC, procesos, timers, SHM y multiplexación de E/S.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +12,7 @@
 #include <sys/wait.h>
 #include <sys/select.h>
 #include <errno.h>
+#include <string.h>
 
 #include "common.h"
 #include "shm.h"
@@ -20,9 +20,9 @@
 #include "writer_sync.h"
 
 
-static void die(const char *m) { 
+static void die(const char *m, int error_code) { 
     perror(m); 
-    exit(1); 
+    exit(error_code); 
 }
 
 /**
@@ -32,7 +32,7 @@ static void die(const char *m) {
  * Si 'v' está en el rango, retorna 'v'.
  */
 static int clamp(int v,int lo,int hi) { 
-    return v<lo?lo:(v>hi?hi:v); 
+    return v < lo ? lo : (v > hi ? hi : v); 
 }
 
 // Usa la semilla para inicializar el tablero con números aleatorios
@@ -55,7 +55,9 @@ static void place_players(game_state_t *gs){
         gs->players[i].invalid_moves=0;
         gs->players[i].is_blocked=false;
         snprintf(gs->players[i].name, MAX_NAME_LEN, "P%d", i);
-        // Las celdas iniciales NO otorgan recompensa ni se marcan capturadas
+    // Las celdas iniciales NO otorgan recompensa: marcarlas como capturadas por el jugador
+    // Usamos el mismo esquema de encoding que durante el juego
+    gs->board[idx(gs->players[i].x, gs->players[i].y, W)] = player_to_cell_value(i);
     }
 }
 
@@ -128,32 +130,30 @@ int main(int argc, char **argv){
                 player_bins[num_players++]=argv[++i];
         } 
         else { 
-            fprintf(stderr,"arg desconocido: %s\n", argv[i]); 
-            return ERROR_INVALID_ARGS; 
-        }
+            die("Usage: ./master [-w width] [-h height] [-d delay] [-s seed] [-v view] [-t timeout] -p player1 player2...", ERROR_INVALID_ARGS);
+        } // CHICOS REVISEMOS ESTO
     }
 
     // Validaciones del tamaño del tablero
     board_width = clamp(board_width, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
     board_height = clamp(board_height, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
     if (num_players<1){ 
-        fprintf(stderr,"Se requiere al menos 1 jugador con -p\n"); 
-        return ERROR_INVALID_ARGS; 
+        die("Error: At least one playermust be specified using -p\n", ERROR_INVALID_ARGS);
     }
 
     // SHM: abrir/crear
     shm_adt game_state_shm, game_sync_shm;
     if (shm_region_open(&game_state_shm, SHM_STATE, game_state_size(board_width,board_height)) == -1) 
-        die("shm_region_open state");
+        die("Error: failed to open or create shared memory region for game state", ERROR_SHM);
     if (shm_region_open(&game_sync_shm,  SHM_SYNC, sizeof(game_sync_t)) == -1) 
-        die("shm_region_open sync");
+        die("Error: failed to open or create shared memory region for game sync", ERROR_SHM);
 
     game_state_t *gs=NULL; 
     game_sync_t *sync=NULL;
     if (game_state_map(game_state_shm, (unsigned short)board_width, (unsigned short)board_height, &gs) == -1) 
-        die("game_state_map");
+        die("Error: failed to map game state shared memory", ERROR_SHM);
     if (game_sync_map(game_sync_shm, &sync) == -1) 
-        die("game_sync_map");
+        die("Error: failed to map game sync shared memory", ERROR_SHM);
 
     // inicialización de estado 
     writer_enter(sync);
@@ -170,7 +170,7 @@ int main(int argc, char **argv){
     for (int i=0;i<num_players;i++){
         int fds[2]; 
         if (pipe(fds)==-1) 
-            die("pipe");
+            die("Error: could not create pipe for player process", ERROR_PIPE);
         pipes[i].read_fd = fds[0]; 
         pipes[i].write_fd = fds[1]; 
         pipes[i].alive=1;
@@ -180,7 +180,7 @@ int main(int argc, char **argv){
 
         pid_t pid = fork();
         if (pid < 0) // Hubo un error
-            die("fork player");
+            die("Error: could not fork player process", ERROR_FORK);
         if (pid == 0){ // Estoy en el proceso hijo
             // hijo jugador: dup write-end -> fd=1 
             dup2(pipes[i].write_fd, 1); // Redirige el extremo de escritura del pipe al stdout (fd=1). Así, todo lo que el jugador escriba por printf va al pipe.
@@ -192,6 +192,11 @@ int main(int argc, char **argv){
             pipes[i].pid = pid;
             writer_enter(sync);
             gs->players[i].pid = pid; //fork te devuelve el PID del hijo si estas en el padre
+            // Guardar un nombre amigable del jugador a partir del binario (basename)
+            const char *bn = player_bins[i];
+            const char *slash = strrchr(bn, '/');
+            const char *pname = slash ? slash + 1 : bn;
+            snprintf(gs->players[i].name, MAX_NAME_LEN, "%s", pname);
             writer_exit(sync);
         }
     }
@@ -201,7 +206,7 @@ int main(int argc, char **argv){
     if (view_bin){ 
         view_pid = fork();
         if (view_pid<0) 
-            die("fork view");
+            die("Error: could not fork view process", ERROR_FORK);
         if (view_pid == 0){ // estamos en el hijo: la vista
             exec_with_board_args(view_bin, board_width, board_height, "exec view");
         } 
@@ -232,8 +237,9 @@ int main(int argc, char **argv){
             writer_enter(sync);
             gs->game_finished = true;
             writer_exit(sync);
-            if (view_bin) sem_post(&sync->view_ready);
-            break;
+            if (view_bin) 
+                sem_post(&sync->view_ready);
+            break; // salgo del bucle principal del juego
         }
         time_t remain = timeout_s - elapsed;
 
@@ -276,7 +282,7 @@ int main(int argc, char **argv){
         int ready = select(maxfd + 1, &rfds, NULL, NULL, &tv);
         if (ready < 0) {
             if (errno == EINTR) continue; // reintentar si fue por señal
-            die("select");
+            die("Error: select() failed while waiting for player input", ERROR_SELECT);
         }
         if (ready == 0) {
             // venció timeout_s sin movimientos
@@ -352,19 +358,34 @@ int main(int argc, char **argv){
 
     int status;
 
-    if (view_pid>0) // Si existe el proceso vista...
+    if (view_pid>0) {// Si existe el proceso vista...
         waitpid(view_pid,&status,0); // ...espera a que termine el proceso vista
-
-    // esperar hijos y reportar puntajes 
+        if (WIFEXITED(status)) {
+            printf("view exit=%d\n", WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            printf("view signal=%d\n", WTERMSIG(status));
+        }
+    }    
+    
+    // esperar hijos y reportar puntajes (formato requerido)
     for (unsigned i=0;i<gs->num_players;i++){
-        if (pipes[i].pid>0) 
+        int code = -1;
+        if (pipes[i].pid>0) {
             waitpid(pipes[i].pid,&status,0); // Espera a que termine el proceso del jugador
+            if (WIFEXITED(status)) code = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status)) code = WTERMSIG(status); // mostramos la señal como código
+        }
+        unsigned score, vld, inv;
+        char namebuf[MAX_NAME_LEN];
         reader_enter(sync);
-        printf("Player %u (pid=%d): score=%u V=%u I=%u%s\n",
-            i,(int)gs->players[i].pid, gs->players[i].score,
-            gs->players[i].valid_moves, gs->players[i].invalid_moves,
-            gs->players[i].is_blocked? " [BLOCKED]":"");
+        score = gs->players[i].score;
+        vld = gs->players[i].valid_moves;
+        inv = gs->players[i].invalid_moves;
+        snprintf(namebuf, sizeof namebuf, "%s", gs->players[i].name);
         reader_exit(sync);
+
+        printf("Player %s (%u) exited (%d) with a score of %u / %u / %u\n",
+               namebuf, i, code, score, vld, inv);
         close(pipes[i].read_fd);
     }
     
@@ -374,3 +395,5 @@ int main(int argc, char **argv){
     game_sync_unmap_destroy(game_sync_shm);
     return SUCCESS;
 }
+
+
