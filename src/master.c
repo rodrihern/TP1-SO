@@ -27,17 +27,10 @@ static void die(const char *m, int error_code) {
     exit(error_code); 
 }
 
-/**
- * Limita el valor 'v' para que esté dentro del rango [lo, hi].
- * Si 'v' es menor que 'lo', retorna 'lo'.
- * Si 'v' es mayor que 'hi', retorna 'hi'.
- * Si 'v' está en el rango, retorna 'v'.
- */
 static int clamp(int v,int lo,int hi) { 
     return v < lo ? lo : (v > hi ? hi : v); 
 }
 
-// Usa la semilla para inicializar el tablero con números aleatorios
 static void init_board(game_state_t *gs, unsigned seed) {
     srand(seed);
     for(int y=0;y<gs->board_height;y++)
@@ -57,15 +50,17 @@ static void place_players(game_state_t *gs){
         gs->players[i].invalid_moves=0;
         gs->players[i].is_blocked=false;
         snprintf(gs->players[i].name, MAX_NAME_LEN, "P%d", i);
-    // Las celdas iniciales NO otorgan recompensa: marcarlas como capturadas por el jugador
-    // Usamos el mismo esquema de encoding que durante el juego
-    gs->board[idx(gs->players[i].x, gs->players[i].y, W)] = player_to_cell_value(i);
+        gs->board[idx(gs->players[i].x, gs->players[i].y, W)] = player_to_cell_value(i);
     }
 }
 
-static int apply_move(game_state_t *gs, int pid_idx, unsigned char dir){
-    if(!is_valid_direction(dir)){ gs->players[pid_idx].invalid_moves++; return 0; }
-    int dx,dy; get_direction_offset((direction_t)dir, &dx, &dy);
+static int apply_move(game_state_t * gs, int pid_idx, unsigned char dir){
+    if(!is_valid_direction(dir)){ 
+        gs->players[pid_idx].invalid_moves++; 
+        return 0; 
+    }
+    int dx,dy; 
+    get_direction_offset((direction_t)dir, &dx, &dy);
     int W=gs->board_width, H=gs->board_height;
     int nx = (int)gs->players[pid_idx].x + dx;
     int ny = (int)gs->players[pid_idx].y + dy;
@@ -97,7 +92,60 @@ static void exec_with_board_args(const char *bin, int board_width, int board_hei
     _exit(EXEC_ERROR_CODE);
 }
 
+static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin) {
+    writer_enter(sync);
+    gs->game_finished = true;
+    writer_exit(sync);
+    if (view_bin) 
+        sem_post(&sync->view_ready);
+}
+// Wrapper function for argument parsing
+static game_args_t parse_args(int argc, char **argv) {
+    game_args_t args;
+    args.board_width = MIN_BOARD_SIZE;
+    args.board_height = MIN_BOARD_SIZE;
+    args.delay_ms = DEFAULT_DELAY_MS;
+    args.timeout_s = DEFAULT_TIMEOUT_S;
+    args.seed = (unsigned)time(NULL);
+    args.view_bin = NULL;
+    args.num_players = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-w") && argc > i + 1)
+            args.board_width = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-h") && argc > i + 1)
+            args.board_height = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-d") && argc > i + 1)
+            args.delay_ms = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-t") && argc > i + 1)
+            args.timeout_s = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-s") && argc > i + 1)
+            args.seed = (unsigned)atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-v") && argc > i + 1)
+            args.view_bin = argv[++i];
+        else if (!strcmp(argv[i], "-p")) {
+            while (argc > i + 1 && args.num_players < MAX_PLAYERS && argv[i + 1][0] != '-')
+                args.player_bins[args.num_players++] = argv[++i];
+        }
+        else {
+            die("Usage: ./master [-w width] [-h height] [-d delay] [-s seed] [-v view] [-t timeout] -p player1 player2...", ERROR_INVALID_ARGS);
+        }
+    }
+    return args;
+}
+
 /* ----------------------------- main ------------------------------- */
+typedef struct {
+    int board_width;
+    int board_height;
+    int delay_ms;
+    int timeout_s;
+    unsigned seed;
+    const char *view_bin;
+    char* player_bins[MAX_PLAYERS];
+    int num_players;
+} game_args_t;
+
 typedef struct { 
     int read_fd; // read fd (extremo de lectura del pipe)
     int write_fd; // write fd (extremo de escritura del pipe)
@@ -106,41 +154,21 @@ typedef struct {
 } pipe_info_t;
 
 int main(int argc, char **argv){
-    // Inicializo con valores por defecto
-    int board_width=MIN_BOARD_SIZE, board_height=MIN_BOARD_SIZE, delay_ms=DEFAULT_DELAY_MS, timeout_s=DEFAULT_TIMEOUT_S;
-    unsigned seed=(unsigned)time(NULL); 
-    const char *view_bin=NULL;
-    char* player_bins[MAX_PLAYERS]; 
-    int num_players=0;
-
-    // Parseo de los argumentos de la línea de comandos
-    for (int i=1;i<argc;i++){
-        if (!strcmp(argv[i],"-w") && argc>i+1) 
-            board_width=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-h") && argc>i+1) 
-            board_height=atoi(argv[++i]); 
-        else if (!strcmp(argv[i],"-d") && argc>i+1) 
-            delay_ms=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-t") && argc>i+1) 
-            timeout_s=atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-s") && argc>i+1) 
-            seed=(unsigned)atoi(argv[++i]);
-        else if (!strcmp(argv[i],"-v") && argc>i+1) 
-            view_bin=argv[++i];
-        else if (!strcmp(argv[i],"-p")){
-            while (argc>i+1 && num_players<MAX_PLAYERS && argv[i+1][0]!='-') 
-                player_bins[num_players++]=argv[++i];
-        } 
-        else { 
-            die("Usage: ./master [-w width] [-h height] [-d delay] [-s seed] [-v view] [-t timeout] -p player1 player2...", ERROR_INVALID_ARGS);
-        } // CHICOS REVISEMOS ESTO
-    }
+    game_args_t args = parse_args(argc, argv);
+    int board_width = args.board_width;
+    int board_height = args.board_height;
+    int delay_ms = args.delay_ms;
+    int timeout_s = args.timeout_s;
+    unsigned seed = args.seed;
+    const char *view_bin = args.view_bin;
+    char **player_bins = args.player_bins;
+    int num_players = args.num_players;
 
     // Validaciones del tamaño del tablero
     board_width = clamp(board_width, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
     board_height = clamp(board_height, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
     if (num_players<1){ 
-        die("Error: At least one playermust be specified using -p\n", ERROR_INVALID_ARGS);
+        die("Error: At least one player must be specified using -p\n", ERROR_INVALID_ARGS);
     }
 
     // SHM: abrir/crear
@@ -188,7 +216,7 @@ int main(int argc, char **argv){
             dup2(pipes[i].write_fd, 1); // Redirige el extremo de escritura del pipe al stdout (fd=1). Así, todo lo que el jugador escriba por printf va al pipe.
             close(pipes[i].read_fd);  // Cierra el extremo de lectura del pipe (el hijo no lee el pipe)
             // argv: width height 
-            exec_with_board_args(player_bins[i], board_width, board_height, "exec player");
+            exec_with_board_args(player_bins[i], board_width, board_height, "Error: failed to exec player");
         } else { // Estoy en el proceso padre
             close(pipes[i].write_fd); // master no escribe
             pipes[i].pid = pid;
@@ -210,7 +238,7 @@ int main(int argc, char **argv){
         if (view_pid<0) 
             die("Error: could not fork view process", ERROR_FORK);
         if (view_pid == 0){ // estamos en el hijo: la vista
-            exec_with_board_args(view_bin, board_width, board_height, "exec view");
+            exec_with_board_args(view_bin, board_width, board_height, "Error: failed to exec player");
         } 
     }
 
@@ -236,11 +264,7 @@ int main(int argc, char **argv){
 
         time_t elapsed = now.tv_sec - last_valid.tv_sec;
         if (elapsed >= timeout_s) {
-            writer_enter(sync);
-            gs->game_finished = true;
-            writer_exit(sync);
-            if (view_bin) 
-                sem_post(&sync->view_ready);
+            finish(sync, gs, view_bin);
             break; // salgo del bucle principal del juego
         }
         time_t remain = timeout_s - elapsed;
@@ -269,10 +293,7 @@ int main(int argc, char **argv){
 
         // Si no queda nadie activo, terminá
         if (active_cnt == 0) {
-            writer_enter(sync);
-            gs->game_finished = true;
-            writer_exit(sync);
-            if (view_bin) sem_post(&sync->view_ready);
+            finish(sync, gs, view_bin);
             break; // TODO: modularizar esto de que termino el juego
         }
 
@@ -288,10 +309,7 @@ int main(int argc, char **argv){
         }
         if (ready == 0) {
             // venció timeout_s sin movimientos
-            writer_enter(sync);
-            gs->game_finished = true;
-            writer_exit(sync);
-            if (view_bin) sem_post(&sync->view_ready);
+            finish(sync, gs, view_bin);
             break;
         }
 

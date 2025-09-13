@@ -28,22 +28,22 @@ int main(int argc, char * argv[]){
 
     shm_adt state_h, sync_h;
     if (shm_region_open(&state_h, SHM_STATE, game_state_size(width,height)) == -1) { 
-        perror("state open");  
+    perror("Error: failed to open shared memory region for game state");  
         return ERROR_SHM_ATTACH; 
     }
     if (shm_region_open(&sync_h,  SHM_SYNC, sizeof(game_sync_t)) == -1) { 
-        perror("sync open");  
+    perror("Error: failed to open shared memory region for game sync");  
         return ERROR_SHM_ATTACH; 
     }
 
     game_state_t *game_state=NULL; 
     game_sync_t *sync=NULL;
     if (game_state_map(state_h, (unsigned short)width, (unsigned short)height, &game_state) == -1) { 
-        perror("map state"); 
+    perror("Error: failed to map game state shared memory"); 
         return ERROR_SHM_ATTACH; 
     }
     if (game_sync_map(sync_h, &sync) == -1) { 
-        perror("map sync"); 
+    perror("Error: failed to map game sync shared memory"); 
         return ERROR_SHM_ATTACH; 
     }
 
@@ -64,6 +64,13 @@ int main(int argc, char * argv[]){
     }
 
     int * board_copy = malloc(width * height * sizeof(*board_copy));
+    if (!board_copy) {
+    perror("Error: failed to allocate memory for board_copy");
+        /* Cleanup mapped regions before exiting */
+        game_state_unmap_destroy(state_h);
+        game_sync_unmap_destroy(sync_h);
+        return ERROR_SHM_ATTACH;
+    }
 
     while (1) {
         // esperar a que pueda jugar
@@ -79,7 +86,8 @@ int main(int argc, char * argv[]){
         reader_enter(sync);
         int x = game_state->players[my_idx].x;
         int y = game_state->players[my_idx].y;
-        board_copy = memcpy(board_copy, game_state->board, width * height * sizeof(*board_copy));
+        /* board_copy was allocated above; just copy the board snapshot */
+        memcpy(board_copy, game_state->board, width * height * sizeof(*board_copy));
         reader_exit(sync);
 
         int dir = pick_dir(board_copy, width, height, x, y);
