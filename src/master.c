@@ -134,6 +134,14 @@ static game_args_t parse_args(int argc, char **argv) {
     return args;
 }
 
+static void validate_game_args(int *board_width, int *board_height, int num_players) {
+    *board_width = clamp(*board_width, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+    *board_height = clamp(*board_height, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+    if (num_players < 1) {
+        die("Error: At least one player must be specified using -p", ERROR_INVALID_ARGS);
+    }
+}
+
 /* ----------------------------- main ------------------------------- */
 typedef struct {
     int board_width;
@@ -164,12 +172,7 @@ int main(int argc, char **argv){
     char **player_bins = args.player_bins;
     int num_players = args.num_players;
 
-    // Validaciones del tamaño del tablero
-    board_width = clamp(board_width, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
-    board_height = clamp(board_height, MIN_BOARD_SIZE, MAX_BOARD_SIZE);
-    if (num_players<1){ 
-        die("Error: At least one player must be specified using -p\n", ERROR_INVALID_ARGS);
-    }
+    validate_game_args(&board_width, &board_height, num_players);
 
     // SHM: abrir/crear
     shm_adt game_state_shm, game_sync_shm;
