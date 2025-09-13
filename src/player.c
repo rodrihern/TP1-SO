@@ -1,3 +1,5 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 // jugador.c
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
