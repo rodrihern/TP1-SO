@@ -117,7 +117,7 @@ static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin)
     if (view_bin) 
         sem_post(&sync->view_ready);
 }
-// Wrapper function for argument parsing
+
 static game_args_t parse_args(int argc, char **argv) {
     game_args_t args;
     args.board_width = MIN_BOARD_SIZE;
@@ -160,245 +160,232 @@ static void validate_game_args(int *board_width, int *board_height, int num_play
     }
 }
 
-/* ----------------------------- main ------------------------------- */
-
-
-int main(int argc, char **argv){
-    game_args_t args = parse_args(argc, argv);
-    int board_width = args.board_width;
-    int board_height = args.board_height;
-    int delay_ms = args.delay_ms;
-    int timeout_s = args.timeout_s;
-    unsigned seed = args.seed;
-    const char *view_bin = args.view_bin;
-    char **player_bins = args.player_bins;
-    int num_players = args.num_players;
-
-    validate_game_args(&board_width, &board_height, num_players);
-
-    // SHM: abrir/crear
-    shm_adt game_state_shm, game_sync_shm;
-    if (shm_region_open(&game_state_shm, SHM_STATE, game_state_size(board_width,board_height)) == -1) 
+static void init_shared_memory(shm_adt *game_state_shm, shm_adt *game_sync_shm, game_state_t **gs, game_sync_t **sync, const game_args_t *args) {
+    if (shm_region_open(game_state_shm, SHM_STATE, game_state_size(args->board_width, args->board_height)) == -1)
         die("Error: failed to open or create shared memory region for game state", ERROR_SHM);
-    if (shm_region_open(&game_sync_shm,  SHM_SYNC, sizeof(game_sync_t)) == -1) 
+
+    if (shm_region_open(game_sync_shm, SHM_SYNC, sizeof(game_sync_t)) == -1)
         die("Error: failed to open or create shared memory region for game sync", ERROR_SHM);
 
-    game_state_t *gs=NULL; 
-    game_sync_t *sync=NULL;
-    if (game_state_map(game_state_shm, (unsigned short)board_width, (unsigned short)board_height, &gs) == -1) 
+    if (game_state_map(*game_state_shm, (unsigned short)args->board_width, (unsigned short)args->board_height, gs) == -1)
         die("Error: failed to map game state shared memory", ERROR_SHM);
-    if (game_sync_map(game_sync_shm, &sync) == -1) 
-        die("Error: failed to map game sync shared memory", ERROR_SHM);
 
-    // inicialización de estado 
+    if (game_sync_map(*game_sync_shm, sync) == -1)
+        die("Error: failed to map game sync shared memory", ERROR_SHM);
+}
+
+static void init_game_state(game_sync_t *sync, game_state_t *gs, const game_args_t *args) {
     writer_enter(sync);
-    gs->board_width = (unsigned short) board_width;
-    gs->board_height = (unsigned short) board_height;
-    gs->num_players = (unsigned) num_players;
+    gs->board_width  = (unsigned short) args->board_width;
+    gs->board_height = (unsigned short) args->board_height;
+    gs->num_players  = (unsigned) args->num_players;
     gs->game_finished = false;
-    init_board(gs, seed);
+    init_board(gs, args->seed);
     place_players(gs);
     writer_exit(sync);
+}
 
-    // pipes & fork jugadores 
-    pipe_info_t pipes[MAX_PLAYERS] = {0};
-    for (int i=0;i<num_players;i++){
-        int fds[2]; 
-        if (pipe(fds)==-1) 
+
+
+static pid_t spawn_view(const char *view_bin, int board_width, int board_height) {
+    if (!view_bin) return -1;
+    pid_t pid = fork();
+    if (pid < 0)
+        die("Error: could not fork view process", ERROR_FORK);
+    if (pid == 0) {
+        exec_with_board_args(view_bin, board_width, board_height, "Error: failed to exec view");
+    }
+    return pid;
+}
+
+static void spawn_players(pipe_info_t pipes[], game_state_t *gs, game_sync_t *sync, const game_args_t *args) {
+    for (int i = 0; i < args->num_players; i++) {
+        int fds[2];
+        if (pipe(fds) == -1)
             die("Error: could not create pipe for player process", ERROR_PIPE);
-        pipes[i].read_fd = fds[0]; 
-        pipes[i].write_fd = fds[1]; 
-        pipes[i].alive=1;
-        fcntl(pipes[i].read_fd, F_SETFL, O_NONBLOCK); // Habilitar modo no bloqueante en el extremo de lectura. 
-        // Así, las operaciones de lectura (read) sobre ese pipe no se detendrán esperando datos; si no hay datos, retornan inmediatamente con error EAGAIN
-        // Así el master puede seguir funcionando aunque un jugador no envíe datos
+        pipes[i].read_fd = fds[0];
+        pipes[i].write_fd = fds[1];
+        pipes[i].alive = 1;
+        fcntl(pipes[i].read_fd, F_SETFL, O_NONBLOCK);
 
         pid_t pid = fork();
-        if (pid < 0) // Hubo un error
+        if (pid < 0)
             die("Error: could not fork player process", ERROR_FORK);
-        if (pid == 0){ // Estoy en el proceso hijo
-            // hijo jugador: dup write-end -> fd=1 
-            dup2(pipes[i].write_fd, 1); // Redirige el extremo de escritura del pipe al stdout (fd=1). Así, todo lo que el jugador escriba por printf va al pipe.
-            close(pipes[i].read_fd);  // Cierra el extremo de lectura del pipe (el hijo no lee el pipe)
-            // argv: width height 
-            exec_with_board_args(player_bins[i], board_width, board_height, "Error: failed to exec player");
-        } else { // Estoy en el proceso padre
-            close(pipes[i].write_fd); // master no escribe
+        if (pid == 0) {
+            dup2(pipes[i].write_fd, 1);
+            close(pipes[i].read_fd);
+            exec_with_board_args(args->player_bins[i], args->board_width, args->board_height, "Error: failed to exec player");
+        } else {
+            close(pipes[i].write_fd);
             pipes[i].pid = pid;
             writer_enter(sync);
-            gs->players[i].pid = pid; //fork te devuelve el PID del hijo si estas en el padre
-            // Guardar un nombre amigable del jugador a partir del binario (basename)
-            const char *bn = player_bins[i];
+            gs->players[i].pid = pid;
+            const char *bn = args->player_bins[i];
             const char *slash = strrchr(bn, '/');
             const char *pname = slash ? slash + 1 : bn;
             snprintf(gs->players[i].name, MAX_NAME_LEN, "%s", pname);
             writer_exit(sync);
         }
     }
+}
 
-    // fork vista 
-    pid_t view_pid = -1; // PID del proceso de la vista (si se crea)
-    if (view_bin){ 
-        view_pid = fork();
-        if (view_pid<0) 
-            die("Error: could not fork view process", ERROR_FORK);
-        if (view_pid == 0){ // estamos en el hijo: la vista
-            exec_with_board_args(view_bin, board_width, board_height, "Error: failed to exec player");
-        } 
-    }
-
-    // habilitar primer movimiento de todos los jugadores
-    for (unsigned i=0; i<gs->num_players; i++)
+static void enable_first_moves(game_sync_t *sync, unsigned num_players) {
+    for (unsigned i = 0; i < num_players; i++)
         sem_post(&sync->player_ready[i]);
+}
 
-    //primer print al iniciar si hay vista 
-    if (view_bin){ 
-        sem_post(&sync->view_ready); // A++ (le avisa a la vista que hay cambios por imprimir)
-        sem_wait(&sync->view_done); // B-- (espera a que la vista termine de imprimir)
+static void notify_view_start(game_sync_t *sync, const char *view_bin) {
+    if (view_bin) {
+        sem_post(&sync->view_ready); // Notifica a la vista que hay cambios
+        sem_wait(&sync->view_done);  // Espera a que la vista termine de imprimir
+    }
+}
+
+
+// Prepara los file descriptors activos y devuelve la cantidad de jugadores activos
+static unsigned prepare_active_fds(pipe_info_t pipes[], bool blocked[], unsigned num_players, fd_set *rfds, int *maxfd) {
+    FD_ZERO(rfds); // Inicializa el conjunto de file descriptors para que esté vacío
+    unsigned active_cnt = 0;
+    *maxfd = -1;
+    for (unsigned i = 0; i < num_players; i++) {
+        if (!blocked[i] && pipes[i].read_fd >= 0) {
+            FD_SET(pipes[i].read_fd, rfds);
+            if (pipes[i].read_fd > *maxfd)
+                *maxfd = pipes[i].read_fd;
+            active_cnt++;
+        }
+    }
+    return active_cnt;
+}
+
+// Procesa el movimiento de un jugador
+static void process_player_move(game_state_t *gs, game_sync_t *sync, pipe_info_t *pipe, unsigned i, struct timespec *last_valid, const char *view_bin, int delay_ms) {
+    int fd = pipe->read_fd;
+    unsigned char dir;
+    ssize_t n = read(fd, &dir, 1);
+    if (n == 0 || (n < 0 && errno != EAGAIN)) {
+        writer_enter(sync);
+        gs->players[i].is_blocked = true;
+        writer_exit(sync);
+        close(fd);
+        pipe->read_fd = -1;
+        pipe->alive = 0;
+        return;
     }
 
-    // main loop 
-    struct timespec last_valid;  // timespec esta en <time.h>
+    int was_valid;
+    writer_enter(sync);
+    was_valid = apply_move(gs, (int)i, dir);
+    writer_exit(sync);
+
+    if (was_valid) clock_gettime(CLOCK_MONOTONIC, last_valid);
+
+    if (view_bin) {
+        sem_post(&sync->view_ready);
+        sem_wait(&sync->view_done);
+    }
+
+    if (delay_ms > 0) {
+        struct timespec ts = { .tv_sec = delay_ms/1000,
+                               .tv_nsec = (delay_ms%1000)*1000000L };
+        nanosleep(&ts, NULL);
+    }
+
+    sem_post(&sync->player_ready[i]);
+}
+
+static bool check_game_timeout(struct timespec *last_valid, int timeout_s, game_sync_t *sync, game_state_t *gs, const char *view_bin) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    time_t elapsed = now.tv_sec - last_valid->tv_sec;
+    if (elapsed >= timeout_s) {
+        finish(sync, gs, view_bin);
+        return true;
+    }
+    return false;
+}
+
+static void game_loop(game_state_t *gs, game_sync_t *sync, pipe_info_t pipes[], const char *view_bin, int delay_ms, int timeout_s) {
+    struct timespec last_valid;
     clock_gettime(CLOCK_MONOTONIC, &last_valid);
-    unsigned next_idx = 0; // próximo jugador a atender (round-robin sin sesgo)
+    unsigned next_idx = 0;
 
     while (1) {
-        // 1) Timeout global: armá timeout relativo para select
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
-
         time_t elapsed = now.tv_sec - last_valid.tv_sec;
         if (elapsed >= timeout_s) {
             finish(sync, gs, view_bin);
-            break; // salgo del bucle principal del juego
+            break;
         }
         time_t remain = timeout_s - elapsed;
 
-        // 2) Armar fd_set con todos los jugadores NO bloqueados
         fd_set rfds;
-        FD_ZERO(&rfds);
         int maxfd = -1;
-        unsigned active_cnt = 0;
-
-        // Tomo snapshot de bloqueados bajo lock de lector.
         bool blocked[MAX_PLAYERS];
+
         reader_enter(sync);
         for (unsigned i = 0; i < gs->num_players; i++)
             blocked[i] = gs->players[i].is_blocked;
         reader_exit(sync);
 
-        for (unsigned i = 0; i < gs->num_players; i++) {
-            if (!blocked[i] && pipes[i].read_fd >= 0) {
-                FD_SET(pipes[i].read_fd, &rfds);
-                if (pipes[i].read_fd > maxfd) 
-                    maxfd = pipes[i].read_fd;
-                active_cnt++;
-            }
-        }
+        unsigned active_cnt = prepare_active_fds(pipes, blocked, gs->num_players, &rfds, &maxfd);
 
-        // Si no queda nadie activo, terminá
         if (active_cnt == 0) {
             finish(sync, gs, view_bin);
-            break; // TODO: modularizar esto de que termino el juego
+            break;
         }
 
-        // 3) Dormir hasta que alguien escriba o venza el timeout global
         struct timeval tv;
         tv.tv_sec  = remain;
         tv.tv_usec = 0;
 
         int ready = select(maxfd + 1, &rfds, NULL, NULL, &tv);
         if (ready < 0) {
-            if (errno == EINTR) continue; // reintentar si fue por señal
+            if (errno == EINTR) 
+                continue;
             die("Error: select() failed while waiting for player input", ERROR_SELECT);
         }
         if (ready == 0) {
-            // venció timeout_s sin movimientos
             finish(sync, gs, view_bin);
             break;
         }
 
-        // 4) Hay al menos un fd listo: procesar en round-robin (1 mov por jugador listo)
-        // int progressed = 0;
         for (unsigned step = 0; step < gs->num_players; step++) {
             unsigned i = (next_idx + step) % gs->num_players;
             int fd = pipes[i].read_fd;
-            if (fd < 0 || blocked[i]) continue;
-            if (!FD_ISSET(fd, &rfds)) continue;  // no estaba listo en esta ronda
-
-            unsigned char dir;
-            ssize_t n = read(fd, &dir, 1);
-            if (n == 0) {
-                // EOF: jugador bloqueado y saco el fd del sistema
-                writer_enter(sync);
-                gs->players[i].is_blocked = true;
-                writer_exit(sync);
-                close(fd);
-                pipes[i].read_fd = -1;
-                pipes[i].alive = 0;
+            if (fd < 0 || blocked[i]) 
                 continue;
-            } else if (n < 0) {
-                if (errno == EAGAIN) continue;   // raro, pero posible: otro hilo drenó
-                // error duro: tratemos como EOF
-                writer_enter(sync);
-                gs->players[i].is_blocked = true;
-                writer_exit(sync);
-                close(fd);
-                pipes[i].read_fd = -1;
-                pipes[i].alive = 0;
+            if (!FD_ISSET(fd, &rfds)) 
                 continue;
-            }
 
-            // Aplicar exactamente UN movimiento
-            int was_valid;
-            writer_enter(sync);
-            was_valid = apply_move(gs, (int)i, dir);
-            writer_exit(sync);
-
-            if (was_valid) clock_gettime(CLOCK_MONOTONIC, &last_valid);
-
-            // Notificar vista por cada movimiento
-            if (view_bin) {
-                sem_post(&sync->view_ready);
-                sem_wait(&sync->view_done);
-            }
-
-            // Delay por jugada
-            if (delay_ms > 0) {
-                struct timespec ts = { .tv_sec = delay_ms/1000,
-                                    .tv_nsec = (delay_ms%1000)*1000000L };
-                nanosleep(&ts, NULL);
-            }
-
-            // Habilitar próximo movimiento del mismo jugador
-            sem_post(&sync->player_ready[i]);
+            process_player_move(gs, sync, &pipes[i], i, &last_valid, view_bin, delay_ms);
         }
 
-        // Avanzar el puntero de fairness
         next_idx = (next_idx + 1) % gs->num_players;
-
-        // Acá NO hace falta un sleep “tiny”; select ya bloquea si nadie escribe
     }
+}
 
-
+static void wait_and_report_view(pid_t view_pid) {
     int status;
-
-    if (view_pid>0) {// Si existe el proceso vista...
-        waitpid(view_pid,&status,0); // ...espera a que termine el proceso vista
+    if (view_pid > 0) {
+        waitpid(view_pid, &status, 0);
         if (WIFEXITED(status)) {
             printf("view exit=%d\n", WEXITSTATUS(status));
         } else if (WIFSIGNALED(status)) {
             printf("view signal=%d\n", WTERMSIG(status));
         }
-    }    
-    
-    // esperar hijos y reportar puntajes (formato requerido)
-    for (unsigned i=0;i<gs->num_players;i++){
+    }
+}
+
+static void wait_and_report_players(game_state_t *gs, game_sync_t *sync, pipe_info_t pipes[]) {
+    int status;
+    for (unsigned i = 0; i < gs->num_players; i++) {
         int code = -1;
-        if (pipes[i].pid>0) {
-            waitpid(pipes[i].pid,&status,0); // Espera a que termine el proceso del jugador
+        if (pipes[i].pid > 0) {
+            waitpid(pipes[i].pid, &status, 0);
             if (WIFEXITED(status)) code = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) code = WTERMSIG(status); // mostramos la señal como código
+            else if (WIFSIGNALED(status)) code = WTERMSIG(status);
         }
         unsigned score, vld, inv;
         char namebuf[MAX_NAME_LEN];
@@ -413,11 +400,40 @@ int main(int argc, char **argv){
                namebuf, i, code, score, vld, inv);
         close(pipes[i].read_fd);
     }
-    
+}
 
-    // limpiar SHM  
+static void cleanup_resources(shm_adt game_state_shm, shm_adt game_sync_shm) {
     game_state_unmap_destroy(game_state_shm);
     game_sync_unmap_destroy(game_sync_shm);
+}
+
+/* ----------------------------- main ------------------------------- */
+
+
+int main(int argc, char **argv){
+    game_args_t args = parse_args(argc, argv);
+    validate_game_args(&args.board_width, &args.board_height, args.num_players);
+
+    shm_adt game_state_shm, game_sync_shm;
+    game_state_t *gs = NULL;
+    game_sync_t *sync = NULL;
+    init_shared_memory(&game_state_shm, &game_sync_shm, &gs, &sync, &args);
+
+    init_game_state(sync, gs, &args);
+
+    pipe_info_t pipes[MAX_PLAYERS] = {0};
+    spawn_players(pipes, gs, sync, &args);
+
+    pid_t view_pid = spawn_view(args.view_bin, args.board_width, args.board_height);
+
+    enable_first_moves(sync, gs->num_players);
+    notify_view_start(sync, args.view_bin);
+
+    game_loop(gs, sync, pipes, args.view_bin, args.delay_ms, args.timeout_s);
+
+    wait_and_report_view(view_pid);
+    wait_and_report_players(gs, sync, pipes);
+    cleanup_resources(game_state_shm, game_sync_shm);
     return SUCCESS;
 }
 
