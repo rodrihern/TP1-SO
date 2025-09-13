@@ -13,24 +13,6 @@
 #include "reader_sync.h"
 
 
-
-
-// static int pick_dir(game_state_t *game_state, int me){
-//     int current_x = game_state->players[me].x, current_y = game_state->players[me].y;
-//     for (unsigned char d=0; d<NUM_DIRECTIONS; ++d){
-//         int dx,dy; 
-//         get_direction_offset((direction_t)d, &dx, &dy);
-//         int nx=current_x+dx, ny=current_y+dy;
-//         if (!is_inside(nx,ny,game_state->board_width,game_state->board_height)) 
-//             continue;
-//         if (cell_is_free(game_state->board[idx(nx,ny,game_state->board_width)])) 
-//             return d;
-//     }
-//     return -1;
-// }
-
-// hagamoslo greedy al amigo
-
 int pick_dir(int board[], int width, int height, int x, int y);
 
 
