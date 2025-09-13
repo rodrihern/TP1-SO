@@ -21,6 +21,24 @@
 #include "reader_sync.h"
 #include "writer_sync.h"
 
+typedef struct {
+    int board_width;
+    int board_height;
+    int delay_ms;
+    int timeout_s;
+    unsigned seed;
+    const char *view_bin;
+    char* player_bins[MAX_PLAYERS];
+    int num_players;
+} game_args_t;
+
+typedef struct { 
+    int read_fd; // read fd (extremo de lectura del pipe)
+    int write_fd; // write fd (extremo de escritura del pipe)
+    pid_t pid; // pid del proceso hijo
+    int alive; // indica si el proceso hijo está vivo
+} pipe_info_t;
+
 
 static void die(const char *m, int error_code) { 
     perror(m); 
@@ -143,23 +161,7 @@ static void validate_game_args(int *board_width, int *board_height, int num_play
 }
 
 /* ----------------------------- main ------------------------------- */
-typedef struct {
-    int board_width;
-    int board_height;
-    int delay_ms;
-    int timeout_s;
-    unsigned seed;
-    const char *view_bin;
-    char* player_bins[MAX_PLAYERS];
-    int num_players;
-} game_args_t;
 
-typedef struct { 
-    int read_fd; // read fd (extremo de lectura del pipe)
-    int write_fd; // write fd (extremo de escritura del pipe)
-    pid_t pid; // pid del proceso hijo
-    int alive; // indica si el proceso hijo está vivo
-} pipe_info_t;
 
 int main(int argc, char **argv){
     game_args_t args = parse_args(argc, argv);
