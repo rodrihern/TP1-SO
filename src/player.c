@@ -13,10 +13,65 @@
 #include "common.h"
 #include "shm.h"
 #include "reader_sync.h"
+#include "player.h"
 
+int pick_dir(int board[], int width, int height, int x, int y) {
+    int max_score = 0;
+    int dir = -1;
 
-int pick_dir(int board[], int width, int height, int x, int y);
+    for (direction_t d = 0; d < NUM_DIRECTIONS; d++) {
+        int dx, dy;
+        get_direction_offset(d, &dx, &dy);
+        if (is_inside(x+dx, y+dy, width, height)) {
+            int current_score = board[idx(x+dx, y+dy, width)];
+            if (current_score > max_score) {
+                max_score = current_score;
+                dir = d;
+            }
+        }
+    }
 
+    return dir;
+}
+
+int find_player_index(game_state_t *game_state, game_sync_t *sync, pid_t me) {
+    int idx = -1;
+    reader_enter(sync);
+    for (unsigned i = 0; i < game_state->num_players; i++) {
+        if (game_state->players[i].pid == me) {
+            idx = (int)i;
+            break;
+        }
+    }
+    reader_exit(sync);
+    return idx;
+}
+
+int init_shared_memory(int width, int height, shm_adt *state_h, shm_adt *sync_h, game_state_t **game_state, game_sync_t **sync) {
+    if (shm_region_open(state_h, SHM_STATE, game_state_size(width, height)) == -1)
+        return ERROR_SHM_ATTACH;
+    if (shm_region_open(sync_h, SHM_SYNC, sizeof(game_sync_t)) == -1)
+        return ERROR_SHM_ATTACH;
+    if (game_state_map(*state_h, (unsigned short)width, (unsigned short)height, game_state) == -1)
+        return ERROR_SHM_ATTACH;
+    if (game_sync_map(*sync_h, sync) == -1)
+        return ERROR_SHM_ATTACH;
+    return SUCCESS;
+}
+
+int is_game_finished(game_state_t *game_state, game_sync_t *sync) {
+    reader_enter(sync);
+    int finished = game_state->game_finished;
+    reader_exit(sync);
+    return finished;
+}
+
+void get_player_position(game_state_t *game_state, game_sync_t *sync, int my_idx, int *x, int *y) {
+    reader_enter(sync);
+    *x = game_state->players[my_idx].x;
+    *y = game_state->players[my_idx].y;
+    reader_exit(sync);
+}
 
 
 int main(int argc, char * argv[]){
@@ -27,37 +82,16 @@ int main(int argc, char * argv[]){
     int width = atoi(argv[1]), height = atoi(argv[2]);
 
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(width,height)) == -1) { 
-    perror("Error: failed to open shared memory region for game state");  
-        return ERROR_SHM_ATTACH; 
-    }
-    if (shm_region_open(&sync_h,  SHM_SYNC, sizeof(game_sync_t)) == -1) { 
-    perror("Error: failed to open shared memory region for game sync");  
-        return ERROR_SHM_ATTACH; 
-    }
-
-    game_state_t *game_state=NULL; 
-    game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)width, (unsigned short)height, &game_state) == -1) { 
-    perror("Error: failed to map game state shared memory"); 
-        return ERROR_SHM_ATTACH; 
-    }
-    if (game_sync_map(sync_h, &sync) == -1) { 
-    perror("Error: failed to map game sync shared memory"); 
-        return ERROR_SHM_ATTACH; 
+    game_state_t *game_state = NULL;
+    game_sync_t *sync = NULL;
+    if (init_shared_memory(width, height, &state_h, &sync_h, &game_state, &sync) != SUCCESS) {
+        perror("Error: failed to initialize shared memory");
+        return ERROR_SHM_ATTACH;
     }
 
     /* encontrar mi índice por PID */
     pid_t me = getpid();
-    int my_idx = -1;
-    reader_enter(sync);
-    for (unsigned i=0;i<game_state->num_players;i++){
-        if (game_state->players[i].pid == me){ 
-            my_idx = (int)i; 
-            break;
-        }
-    }
-    reader_exit(sync);
+    int my_idx = find_player_index(game_state, sync, me);
     if (my_idx<0){ 
         fprintf(stderr,"jugador: no encuentro mi PID en game_state\n"); 
         return 2; 
@@ -73,14 +107,8 @@ int main(int argc, char * argv[]){
     }
 
     while (1) {
-        // esperar a que pueda jugar
         sem_wait(&sync->player_ready[my_idx]);
-
-        // checkear si termino el juego
-        reader_enter(sync);
-        int finished = game_state->game_finished;
-        reader_exit(sync);
-        if (finished)
+        if (is_game_finished(game_state, sync))
             break;
 
         reader_enter(sync);
@@ -111,21 +139,3 @@ int main(int argc, char * argv[]){
     return SUCCESS;
 }
 
-int pick_dir(int board[], int width, int height, int x, int y) {
-    int max_score = 0;
-    int dir = -1;
-
-    for (direction_t d = 0; d < NUM_DIRECTIONS; d++) {
-        int dx, dy;
-        get_direction_offset(d, &dx, &dy);
-        if (is_inside(x+dx, y+dy, width, height)) {
-            int current_score = board[idx(x+dx, y+dy, width)];
-            if (current_score > max_score) {
-                max_score = current_score;
-                dir = d;
-            }
-        }
-    }
-
-    return dir;
-}

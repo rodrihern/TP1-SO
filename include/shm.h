@@ -1,3 +1,6 @@
+#ifndef SHM_H
+#define SHM_H
+
 #pragma once
 #include <stddef.h>
 #include <semaphore.h>
@@ -17,3 +20,5 @@ int game_sync_map (shm_adt handle, game_sync_t** out_sync);
 
 int game_state_unmap_destroy(shm_adt handle);
 int game_sync_unmap_destroy (shm_adt handle);
+
+#endif

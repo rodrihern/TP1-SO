@@ -1,3 +1,6 @@
+#ifndef READER_SYNC_H
+#define READER_SYNC_H
+
 #pragma once
 #include "common.h"
 
@@ -17,3 +20,5 @@ static inline void reader_exit(game_sync_t *s) {
         sem_post(&s->state_mutex);
     sem_post(&s->reader_count_mutex); // Abro el "candado" para que otros lectores puedan modificar reader_count
 }
+
+#endif
