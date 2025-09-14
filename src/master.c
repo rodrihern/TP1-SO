@@ -220,6 +220,7 @@ int main(int argc, char **argv){
             // hijo jugador: dup write-end -> fd=1 
             dup2(pipes[i].write_fd, 1); // Redirige el extremo de escritura del pipe al stdout (fd=1). Así, todo lo que el jugador escriba por printf va al pipe.
             close(pipes[i].read_fd);  // Cierra el extremo de lectura del pipe (el hijo no lee el pipe)
+            close(pipes[i].write_fd); // Ya duplicado en fd=1, cerramos el original
             // argv: width height 
             exec_with_board_args(player_bins[i], board_width, board_height, "Error: failed to exec player");
         } else { // Estoy en el proceso padre
@@ -411,7 +412,10 @@ int main(int argc, char **argv){
 
         printf("Player %s (%u) exited (%d) with a score of %u / %u / %u\n",
                namebuf, i, code, score, vld, inv);
-        close(pipes[i].read_fd);
+        if (pipes[i].read_fd >= 0) {
+            close(pipes[i].read_fd);
+            pipes[i].read_fd = -1;
+        }
     }
     
 
