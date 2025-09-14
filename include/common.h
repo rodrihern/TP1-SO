@@ -5,12 +5,6 @@
 #include <sys/types.h>
 #include <semaphore.h>
 
-/*
- * =============================================================================
- * CONSTANTES Y CONFIGURACIONES GLOBALES
- * =============================================================================
- */
-
 #define NUM_DIRECTIONS 8
 
 // Nombres de las memorias compartidas
@@ -42,11 +36,6 @@
 #define ERROR_SHM_ATTACH -6           // Failed to attach shared memory
 #define EXEC_ERROR_CODE 127           // Exec failure (standard)
 
-/*
- * =============================================================================
- * ENUMERACIONES
- * =============================================================================
- */
 
 /**
  * Direcciones de movimiento (0-7)
@@ -63,11 +52,6 @@ typedef enum {
     LEFT_UP = 7    
 } direction_t;
 
-/*
- * =============================================================================
- * ESTRUCTURAS DE DATOS
- * =============================================================================
- */
 
 /**
  * Información de un jugador
@@ -105,34 +89,15 @@ typedef struct {
  * Anteriormente "ZZZ" en el enunciado
  */
 typedef struct {
-    sem_t view_ready;              // A: Master → Vista (hay cambios por imprimir)
-    sem_t view_done;               // B: Vista → Master (terminó de imprimir)
-    sem_t writer_mutex;            // C: Mutex para evitar inanición del master al acceder al estado. 
-    // Si un escritor quiere entrar, lo pone en 0 para que no entren más lectores.
-    // Arranca en 1 (abierto)
-    // Vale 0:
-    // - durante la entrada de un lector (muy breve)
-    // - durante la escritura hasta writer_exit
-    sem_t state_mutex;             // D: Mutex para el estado del juego
-    // Lo toma el primer lector y lo suelta el último  -> los escritores lo toman en exclusiva para escribir
-    // Vale 0:
-    // - cuando hay al menos 1 lector dentro
-    // - cuando hay 1 escritor activo (master escribiendo)
-    // Vale 1: cuando no hay ni lectores ni escritor
-    sem_t reader_count_mutex;      // E: Mutex para la variable reader_count (para protegerla)
-    // Vale 0:
-    // - mientras un lector este actualizando reader_count
-    unsigned int reader_count;     // F: Cantidad de jugadores leyendo el estado en el instánte actual
-    // El escritor entra cuando es 0 y D = 1
+    sem_t view_ready;                // A: Master → Vista (hay cambios por imprimir)
+    sem_t view_done;                 // B: Vista → Master (terminó de imprimir)
+    sem_t writer_mutex;              // C: Mutex para evitar inanición del master al acceder al estado.
+    sem_t state_mutex;               // D: Mutex para el estado del juego
+    sem_t reader_count_mutex;        // E: Mutex para la variable reader_count (para protegerla)
+    unsigned int reader_count;       // F: Cantidad de jugadores leyendo el estado en el instánte actual
     sem_t player_ready[MAX_PLAYERS]; // G: Indica a cada jugador que puede enviar 1 movimiento. Garantiza 1 movimiento por vez por jugador
     // 
 } game_sync_t;
-
-/*
- * =============================================================================
- * FUNCIONES HELPER INLINE
- * =============================================================================
- */
 
 /**
  * Convierte coordenadas (x,y) a índice lineal en el tablero

@@ -102,7 +102,7 @@ static int apply_move(game_state_t * gs, int pid_idx, unsigned char dir){
 }
 
 // Chequea si desde (x,y) hay al menos un vecino con valor positivo (>0).
-// Requiere que el caller tenga lock de lector si accede a gs.
+// Requiere que el caller tenga lock de lector para gs.
 static bool has_valid_neighbor_at_locked(const game_state_t *gs, int x, int y){
     int W = (int)gs->board_width;
     int H = (int)gs->board_height;
@@ -180,6 +180,23 @@ static void validate_game_args(int *board_width, int *board_height, int num_play
     }
 }
 
+static void print_game_args(const game_args_t *args) {
+    system("clear");
+    printf("width: %d\n", args->board_width);
+    printf("height: %d\n", args->board_height);
+    printf("delay: %d\n", args->delay_ms);
+    printf("timeout: %d\n", args->timeout_s);
+    printf("seed: %u\n", args->seed);
+    printf("view: %s\n", args->view_bin ? args->view_bin : "(none)");
+    printf("num_players: %d\n", args->num_players);
+    for (int i = 0; i < args->num_players; i++) {
+        printf("  %s\n", args->player_bins[i]);
+    }
+    struct timespec ts = {.tv_sec = 2};
+    nanosleep(&ts, NULL);
+    system("clear");
+}
+
 /* ----------------------------- main ------------------------------- */
 
 
@@ -196,7 +213,8 @@ int main(int argc, char **argv){
 
     validate_game_args(&board_width, &board_height, num_players);
 
-    // TODO: hacer funcion de print game args
+    print_game_args(&args);
+    
 
     // SHM: abrir/crear
     shm_adt game_state_shm, game_sync_shm;
@@ -307,7 +325,7 @@ int main(int argc, char **argv){
             if (gs->players[i].is_blocked) continue;
             int x = (int)gs->players[i].x;
             int y = (int)gs->players[i].y;
-            if (!has_valid_neighbor_at_locked(gs, x, y)){
+            if (!has_valid_neighbor_at_locked(gs, x, y)) {
                 to_block[i] = true;
                 fds_to_close[i] = pipes[i].read_fd;
             }
@@ -440,13 +458,16 @@ int main(int argc, char **argv){
     if (view_pid>0) {// Si existe el proceso vista...
         waitpid(view_pid,&status,0); // ...espera a que termine el proceso vista
         if (WIFEXITED(status)) {
-            printf("view exit=%d\n", WEXITSTATUS(status));
+            printf("view exited (%d)\n", WEXITSTATUS(status));
         } else if (WIFSIGNALED(status)) {
             printf("view signal=%d\n", WTERMSIG(status));
         }
     }    
     
     // esperar hijos y reportar puntajes (formato requerido)
+
+
+
     for (unsigned i=0;i<gs->num_players;i++){
         int code = -1;
         if (pipes[i].pid>0) {
