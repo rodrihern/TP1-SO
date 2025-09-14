@@ -86,9 +86,12 @@ static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
     int draw_h = bh;
     int draw_w = bw;
     // Limitar por tamaño de terminal
-    if (draw_h > maxy - 2) draw_h = maxy - 2; // deja margen
-    if (draw_w * cellw > maxx - 2) draw_w = (maxx - 2) / cellw;
-    if (draw_h <= 0 || draw_w <= 0) return;
+    if (draw_h > maxy - 2) 
+        draw_h = maxy - 2; // deja margen
+    if (draw_w * cellw > maxx - 2) 
+        draw_w = (maxx - 2) / cellw;
+    if (draw_h <= 0 || draw_w <= 0) 
+        return;
 
     // Centro ideal
     int row0 = (maxy - draw_h) / 2;
@@ -100,15 +103,22 @@ static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
     // mvprintw(row0 - 1, col0, "Board (%dx%d shown of %dx%d):", draw_w, draw_h, bw, bh);
 
     for (int y = 0; y < draw_h; ++y){
-        int sy = row0 + y; if (sy >= maxy) break;
+        int sy = row0 + y; 
+        if (sy >= maxy) 
+        break;
         for (int x = 0; x < draw_w; ++x){
-            int sx = col0 + x * cellw; if (sx + (cellw-1) >= maxx) break;
+            int sx = col0 + x * cellw; 
+            if (sx + (cellw-1) >= maxx) 
+                break;
 
             // ¿Hay un jugador parado en (x,y)?
             int standing_pid = -1;
             for (unsigned i = 0; i < gs->num_players; ++i){
                 const player_t *p = &gs->players[i];
-                if ((int)p->x == x && (int)p->y == y){ standing_pid = (int)i; break; }
+                if ((int)p->x == x && (int)p->y == y){ 
+                    standing_pid = (int)i; 
+                    break;
+                }
             }
 
             if (standing_pid >= 0){
@@ -182,7 +192,8 @@ int main(int argc, char **argv){
 
     // Ignorar input: no permitir salir con 'q'
     (void)getch();
-        if (finished) break;
+        if (finished) 
+            break;
     }
 
     ui_end();

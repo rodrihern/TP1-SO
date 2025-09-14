@@ -13,7 +13,7 @@
 
 // Valores por defecto de tiempo
 #define DEFAULT_DELAY_MS 200
-#define DEFAULT_TIMEOUT_S 10
+#define DEFAULT_TIMEOUT_S 100
 
 // Dimensiones y límites del juego
 #define MAX_PLAYERS 9
@@ -163,7 +163,9 @@ static inline int player_to_cell_value(int player_id) {
  * @param dir Dirección (0-7)
  * @param dx Puntero para almacenar desplazamiento X
  * @param dy Puntero para almacenar desplazamiento Y
+ * 
  */
+
 static inline void get_direction_offset(direction_t dir, int *dx, int *dy) {
     static const int offsets[8][2] = {
         {0, -1},  // UP

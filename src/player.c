@@ -15,21 +15,37 @@
 #include "reader_sync.h"
 #include "player.h"
 
-int pick_dir(int board[], int width, int height, int x, int y) {
+int pick_dir(int board[], int width, int height, int x, int y, FILE *logf) {
     int max_score = 0;
     int dir = -1;
+
+    fprintf(logf, "\n\npos=(%d,%d), dir=%d\n", x, y, dir);
+        fflush(logf);   // asegura que se escriba al instant
 
     for (direction_t d = 0; d < NUM_DIRECTIONS; d++) {
         int dx, dy;
         get_direction_offset(d, &dx, &dy);
+
+        
+
         if (is_inside(x+dx, y+dy, width, height)) {
             int current_score = board[idx(x+dx, y+dy, width)];
+
+            fprintf(logf, "Direction %d has score %d\n", d, current_score);
+            fflush(logf);   // asegura que se escriba al instante
+
+            
             if (current_score > max_score) {
                 max_score = current_score;
                 dir = d;
+
+                fprintf(logf, "New best direction: %d with score %d\n", dir, max_score);
+                fflush(logf);   // asegura que se escriba al instante
             }
         }
     }
+    fprintf(logf, "FINAL best_dir=%d max_score=%d\n", dir, max_score);
+    fflush(logf);   // asegura que se escriba al instante
 
     return dir;
 }
@@ -75,11 +91,21 @@ void get_player_position(game_state_t *game_state, game_sync_t *sync, int my_idx
 
 
 int main(int argc, char * argv[]){
-    if (argc<3){ 
+    if (argc<NUM_ARGS){ 
         fprintf(stderr,"uso: jugador <W> <H>\n"); 
         return ERROR_INVALID_ARGS; 
     }
     int width = atoi(argv[1]), height = atoi(argv[2]);
+
+    // PARA DEPURAR
+    char fname[64];
+    snprintf(fname, sizeof(fname), "jugador_%d.log", getpid());
+    FILE *logf = fopen(fname, "w");
+    if (!logf) {
+        perror("fopen");
+        exit(1);
+    }
+
 
     shm_adt state_h, sync_h;
     game_state_t *game_state = NULL;
@@ -118,7 +144,7 @@ int main(int argc, char * argv[]){
         memcpy(board_copy, game_state->board, width * height * sizeof(*board_copy));
         reader_exit(sync);
 
-        int dir = pick_dir(board_copy, width, height, x, y);
+        int dir = pick_dir(board_copy, width, height, x, y, logf);
 
         if (dir < 0) {
             fflush(stdout);

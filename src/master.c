@@ -107,7 +107,8 @@ static bool has_valid_neighbor_at_locked(const game_state_t *gs, int x, int y){
     int W = (int)gs->board_width;
     int H = (int)gs->board_height;
     for (direction_t d = 0; d < NUM_DIRECTIONS; d++){
-        int dx, dy; get_direction_offset(d, &dx, &dy);
+        int dx, dy; 
+        get_direction_offset(d, &dx, &dy);
         int nx = x + dx, ny = y + dy;
         if (is_inside(nx, ny, W, H)){
             if (gs->board[idx(nx, ny, W)] > 0)
