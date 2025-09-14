@@ -114,6 +114,10 @@ static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin)
     writer_enter(sync);
     gs->game_finished = true;
     writer_exit(sync);
+    // Desbloquear a todos los jugadores por si están esperando en sem_wait()
+    for (unsigned i = 0; i < gs->num_players; ++i) {
+        sem_post(&sync->player_ready[i]);
+    }
     if (view_bin) 
         sem_post(&sync->view_ready);
 }
@@ -175,6 +179,8 @@ int main(int argc, char **argv){
     int num_players = args.num_players;
 
     validate_game_args(&board_width, &board_height, num_players);
+
+    // TODO: hacer funcion de print game args
 
     // SHM: abrir/crear
     shm_adt game_state_shm, game_sync_shm;
