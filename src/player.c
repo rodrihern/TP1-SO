@@ -92,15 +92,19 @@ int main(int argc, char * argv[]){
 
         int dir = pick_dir(board_copy, width, height, x, y);
 
-        if (dir < 0) {
-            fflush(stdout);
-            close(STDOUT_FILENO);
+        // if (dir < 0) {
+        //     fflush(stdout);
+        //     close(STDOUT_FILENO);
+        //     break;
+        // } else {
+        //     unsigned char b = (unsigned char)dir;
+        //     if (write(STDOUT_FILENO, &b, 1) < 0) 
+        //         break;
+        // }
+
+        unsigned char b = (unsigned char)dir;
+        if (write(STDOUT_FILENO, &b, 1) < 0) 
             break;
-        } else {
-            unsigned char b = (unsigned char)dir;
-            if (write(STDOUT_FILENO, &b, 1) < 0) 
-                break;
-        }
         
     }
 

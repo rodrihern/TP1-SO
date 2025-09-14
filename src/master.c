@@ -101,6 +101,22 @@ static int apply_move(game_state_t * gs, int pid_idx, unsigned char dir){
     return 1;
 }
 
+// Chequea si desde (x,y) hay al menos un vecino con valor positivo (>0).
+// Requiere que el caller tenga lock de lector si accede a gs.
+static bool has_valid_neighbor_at_locked(const game_state_t *gs, int x, int y){
+    int W = (int)gs->board_width;
+    int H = (int)gs->board_height;
+    for (direction_t d = 0; d < NUM_DIRECTIONS; d++){
+        int dx, dy; get_direction_offset(d, &dx, &dy);
+        int nx = x + dx, ny = y + dy;
+        if (is_inside(nx, ny, W, H)){
+            if (gs->board[idx(nx, ny, W)] > 0)
+                return true;
+        }
+    }
+    return false;
+}
+
 static void exec_with_board_args(const char *bin, int board_width, int board_height, const char *error_msg) {
     char wb[16], hb[16];
     snprintf(wb, sizeof wb, "%d", board_width);
@@ -281,7 +297,38 @@ int main(int argc, char **argv){
         }
         time_t remain = timeout_s - elapsed;
 
-        // 2) Armar fd_set con todos los jugadores NO bloqueados
+        // 2) Antes de armar fd_set: bloquear jugadores sin movimientos válidos
+        bool to_block[MAX_PLAYERS] = {0};
+        int fds_to_close[MAX_PLAYERS];
+        for (unsigned i=0;i<MAX_PLAYERS;i++) fds_to_close[i] = -1;
+
+        reader_enter(sync);
+        for (unsigned i = 0; i < gs->num_players; i++){
+            if (gs->players[i].is_blocked) continue;
+            int x = (int)gs->players[i].x;
+            int y = (int)gs->players[i].y;
+            if (!has_valid_neighbor_at_locked(gs, x, y)){
+                to_block[i] = true;
+                fds_to_close[i] = pipes[i].read_fd;
+            }
+        }
+        reader_exit(sync);
+
+        bool any_blocked_now = false;
+        for (unsigned i = 0; i < gs->num_players; i++){
+            if (!to_block[i]) continue;
+            writer_enter(sync);
+            gs->players[i].is_blocked = true;
+            writer_exit(sync);
+            if (fds_to_close[i] >= 0){ close(fds_to_close[i]); pipes[i].read_fd = -1; }
+            any_blocked_now = true;
+        }
+        if (any_blocked_now && view_bin){
+            sem_post(&sync->view_ready);
+            sem_wait(&sync->view_done);
+        }
+
+        // 3) Armar fd_set con todos los jugadores NO bloqueados
         fd_set rfds;
         FD_ZERO(&rfds);
         int maxfd = -1;
