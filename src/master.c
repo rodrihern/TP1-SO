@@ -431,13 +431,13 @@ int main(int argc, char **argv){
             if (was_valid) clock_gettime(CLOCK_MONOTONIC, &last_valid);
 
             // Notificar vista por cada movimiento
-            if (view_bin) {
+            if (was_valid && view_bin) {
                 sem_post(&sync->view_ready);
                 sem_wait(&sync->view_done);
             }
 
             // Delay por jugada
-            if (delay_ms > 0) {
+            if (was_valid && delay_ms > 0) {
                 struct timespec ts = { .tv_sec = delay_ms/1000,
                                     .tv_nsec = (delay_ms%1000)*1000000L };
                 nanosleep(&ts, NULL);
