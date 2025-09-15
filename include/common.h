@@ -37,10 +37,6 @@
 #define EXEC_ERROR_CODE 127           // Exec failure (standard)
 
 
-/**
- * Direcciones de movimiento (0-7)
- * Comenzando por UP (0) y avanzando en sentido horario
- */
 typedef enum {
     UP = 0,        
     UP_RIGHT = 1,  
@@ -53,10 +49,6 @@ typedef enum {
 } direction_t;
 
 
-/**
- * Información de un jugador
- * Anteriormente "XXX" en el enunciado
- */
 typedef struct {
     char name[MAX_NAME_LEN];     // Nombre del jugador
     unsigned int score;          // Puntaje acumulado
@@ -68,13 +60,7 @@ typedef struct {
     bool is_blocked;             // Indica si el jugador está bloqueado
 } player_t;
 
-/**
- * Estado completo del juego
- * Anteriormente "YYY" en el enunciado
- * 
- * IMPORTANTE: board[] es un flexible array member que debe ser
- * accedido usando board[y * width + x] para la posición (x,y)
- */
+
 typedef struct {
     unsigned short board_width;          // Ancho del tablero
     unsigned short board_height;         // Alto del tablero
@@ -84,10 +70,6 @@ typedef struct {
     int board[];                         // Tablero (flexible)
 } game_state_t;
 
-/**
- * Estructura de sincronización entre procesos
- * Anteriormente "ZZZ" en el enunciado
- */
 typedef struct {
     sem_t view_ready;                // A: Master → Vista (hay cambios por imprimir)
     sem_t view_done;                 // B: Vista → Master (terminó de imprimir)
@@ -99,72 +81,35 @@ typedef struct {
     // 
 } game_sync_t;
 
-/**
- * Convierte coordenadas (x,y) a índice lineal en el tablero
- * @param x Coordenada X
- * @param y Coordenada Y  
- * @param width Ancho del tablero
- * @return Índice para acceder a board[idx]
- */
+
 static inline int idx(int x, int y, int width) {
     return y * width + x;
 }
 
-/**
- * Verifica si las coordenadas están dentro del tablero
- * @param x Coordenada X
- * @param y Coordenada Y
- * @param width Ancho del tablero
- * @param height Alto del tablero
- * @return true si está dentro, false caso contrario
- */
+
 static inline bool is_inside(int x, int y, int width, int height) {
     return (x >= 0 && x < width && y >= 0 && y < height);
 }
 
-/**
- * Verifica si una celda está libre (contiene recompensa)
- * @param value Valor de la celda
- * @return true si está libre (valor 1-9), false si está capturada (<=0)
- */
+
 static inline bool cell_is_free(int value) {
     return (value >= MIN_REWARD && value <= MAX_REWARD);
 }
 
-/**
- * Verifica si una celda está capturada por un jugador
- * @param value Valor de la celda
- * @return true si está capturada (valor negativo), false caso contrario
- */
+
 static inline bool cell_is_captured(int value) {
     return (value <= 0);
 }
 
-/**
- * Obtiene el ID del jugador que capturó una celda
- * @param value Valor de la celda (debe ser negativo)
- * @return ID del jugador (0-based), -1 si la celda no está capturada
- */
+
 static inline int get_cell_owner(int value) {
     return cell_is_captured(value) ? (-value) : -1;
 }
 
-/**
- * Convierte un ID de jugador a valor de celda capturada
- * @param player_id ID del jugador (0-based)
- * @return Valor negativo para marcar la celda como capturada
- */
+
 static inline int player_to_cell_value(int player_id) {
     return -player_id;
 }
-
-/**
- * Obtiene el desplazamiento (dx, dy) para una dirección dada
- * @param dir Dirección (0-7)
- * @param dx Puntero para almacenar desplazamiento X
- * @param dy Puntero para almacenar desplazamiento Y
- * 
- */
 
 static inline void get_direction_offset(direction_t dir, int *dx, int *dy) {
     static const int offsets[8][2] = {
@@ -187,23 +132,14 @@ static inline void get_direction_offset(direction_t dir, int *dx, int *dy) {
     }
 }
 
-/**
- * Verifica si una dirección es válida (0-7)
- * @param dir Dirección a verificar
- * @return true si es válida, false caso contrario
- */
+
 static inline bool is_valid_direction(unsigned char dir) {
     return (dir <= 7);
 }
 
-/**
- * Calcula el tamaño total de la estructura game_t incluyendo el tablero
- * @param width Ancho del tablero
- * @param height Alto del tablero
- * @return Tamaño en bytes de la estructura completa
- */
+
 static inline size_t game_state_size(int width, int height) {
     return sizeof(game_state_t) + (width * height * sizeof(int));
 }
 
-#endif // COMMON_H
+#endif 

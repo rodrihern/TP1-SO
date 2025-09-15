@@ -23,17 +23,15 @@ struct shm_cdt {
 };
 
 
-static int ensure_size(int fd, size_t sz) { // fijar tamaño real con ftruncate de shm
+static int ensure_size(int fd, size_t sz) { 
     return ftruncate(fd, (off_t)sz); 
 }
 
-//Mapea la SHM con lectura/escritura y compartida entre proceso. Devuelve el puntero a la zona de memoria
 static void *map_rw(int fd, size_t sz) { 
     void *p = mmap(NULL, sz, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
     return (p == MAP_FAILED) ? NULL : p;
 }
 
-// desmapea, retorna -1 si falla
 static int unmap_if_mapped(struct shm_cdt *r) { 
     if (r->base && r->size) { 
         if (munmap(r->base, r->size) == -1)  
@@ -43,7 +41,6 @@ static int unmap_if_mapped(struct shm_cdt *r) {
     return 0;
 }
 
-// Libera todos los recursos asociados a un handle de SHM
 static void free_shm_handle(struct shm_cdt *h) {
     if (h) {
         free(h->name);
@@ -84,19 +81,18 @@ int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
     if (!h) 
         return -1;
 
-    h->name = strdup(name); // Guardamos una copia del name (se usa en el unlink)
+    h->name = strdup(name); 
     if (!h->name) {
         free(h); 
         return -1;
     }
 
-    
     h->fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
 
-    if (h->fd != -1) { // si creamos, somos owners
+    if (h->fd != -1) { 
         h->owner = true;
         h->size  = size_bytes;
-        if (ensure_size(h->fd, size_bytes) == -1) { // Ajusta el tamaño real del objeto SHM con ftruncate (dentro de ensure_size).
+        if (ensure_size(h->fd, size_bytes) == -1) { 
             int e = errno;
             close(h->fd);
             shm_unlink(name);
@@ -104,9 +100,8 @@ int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
             errno = e;
             return -1; 
         }
-        // aseguramos permisos amplios incluso si la umask del proceso es restrictiva
         (void)fchmod(h->fd, 0666);
-    } else if (errno == EEXIST) { // ya existia
+    } else if (errno == EEXIST) { 
         h->fd = shm_open(name, O_RDWR, 0);
 
         if (h->fd == -1) {
@@ -125,14 +120,12 @@ int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
         }
         h->size  = (size_t)st.st_size; 
         h->owner = false;
-    } else { // fallo
+    } else { 
         int e = errno;
         free_shm_handle(h);
         errno = e;
         return -1;
     }
-
-    // ahora no mapeamos, se hace en las funciones game_state_map y game_sync_map
     h->base = NULL;
     *out_handle = h;
     return 0;
@@ -166,21 +159,19 @@ int game_state_map(shm_adt handle, unsigned short width, unsigned short height, 
 
     size_t need = game_state_size(width, height);
 
-    // agrandamos si somos owner
     if (h->owner && h->size < need) {
         if (ensure_size(h->fd, need) == -1) 
             return -1;
         h->size = need;
     }
 
-    // remapear si hace falta
     if (!h->base || h->size < need) {
         if (unmap_if_mapped(h) == -1) 
             return -1;
         if (!h->owner && h->size < need) { 
             errno = EINVAL; 
             return -1; 
-        } // región muy chica
+        } 
         h->base = map_rw(h->fd, h->size);
         if (!h->base) 
             return -1;
@@ -190,7 +181,6 @@ int game_state_map(shm_adt handle, unsigned short width, unsigned short height, 
     *out_state = gs;
 
     if (h->owner) {
-        // inicializamos todo en 0
         memset(gs, 0, h->size);
         gs->board_width   = width;
         gs->board_height  = height;
@@ -258,10 +248,7 @@ int game_state_unmap_destroy(shm_adt handle) {
     return result;
 }
 
-//1.sem_destroy (mientras la memoria está mapeada),
-//2.munmap,
-//3.close,
-//4.shm_unlink (solo el dueño).
+
 int game_sync_unmap_destroy(shm_adt handle) {
     if (!handle) { 
         errno = EINVAL; 
@@ -269,8 +256,7 @@ int game_sync_unmap_destroy(shm_adt handle) {
     }
     struct shm_cdt *h = (struct shm_cdt*)handle;
     int result = 0;
-
-    // Sólo el creador destruye semáforos (orden: destruir -> unmap -> close -> unlink)
+    
     if (h->owner && h->base) {
         game_sync_t *sync = (game_sync_t*)h->base;
         int e = 0;
