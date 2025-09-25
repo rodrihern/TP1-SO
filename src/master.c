@@ -235,6 +235,16 @@ int main(int argc, char **argv){
     place_players(gs);
     writer_exit(sync);
 
+    pid_t view_pid = -1; 
+    if (view_bin){ 
+        view_pid = fork();
+        if (view_pid<0) 
+            die("Error: could not fork view process", ERROR_FORK);
+        if (view_pid == 0){ 
+            exec_with_board_args(view_bin, board_width, board_height, "Error: failed to exec player");
+        } 
+    }
+
     pipe_info_t pipes[MAX_PLAYERS] = {0};
     for (int i=0;i<num_players;i++){
         int fds[2]; 
@@ -248,7 +258,10 @@ int main(int argc, char **argv){
         pid_t pid = fork();
         if (pid < 0) 
             die("Error: could not fork player process", ERROR_FORK);
-        if (pid == 0){ 
+        if (pid == 0) { // TODO: cerrar todos los pipes de los hijos
+            for (int j = 0; j < i; j++) {
+                close(pipes[j].read_fd);
+            }
             dup2(pipes[i].write_fd, 1); 
             close(pipes[i].read_fd);  
             close(pipes[i].write_fd); 
@@ -267,15 +280,7 @@ int main(int argc, char **argv){
     }
 
 
-    pid_t view_pid = -1; 
-    if (view_bin){ 
-        view_pid = fork();
-        if (view_pid<0) 
-            die("Error: could not fork view process", ERROR_FORK);
-        if (view_pid == 0){ 
-            exec_with_board_args(view_bin, board_width, board_height, "Error: failed to exec player");
-        } 
-    }
+    
 
     for (unsigned i=0; i<gs->num_players; i++)
         sem_post(&sync->player_ready[i]);
