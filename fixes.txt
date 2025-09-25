@@ -1,1 +1,18 @@
 for i in {473..496}; do lsof -p $i | grep FIFO; echo; done;
+
+TODO:
+
+que le cuente los movimientos invalidos al /bin/yes
+
+corregir la apertura de la shm
+
+hacer que no corra cuando el pasaje de parametros es invalido
+
+
+
+reporte de cambios realizados:
+
+pipes de lectura cerrados en los hijos
+
+
+

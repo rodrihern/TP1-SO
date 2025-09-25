@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/select.h>
+#include <signal.h>
 #include <errno.h>
 #include <string.h>
 
@@ -101,20 +102,20 @@ static int apply_move(game_state_t * gs, int pid_idx, unsigned char dir){
     return 1;
 }
 
-static bool has_valid_neighbor_at_locked(const game_state_t *gs, int x, int y){
-    int W = (int)gs->board_width;
-    int H = (int)gs->board_height;
-    for (direction_t d = 0; d < NUM_DIRECTIONS; d++){
-        int dx, dy; 
-        get_direction_offset(d, &dx, &dy);
-        int nx = x + dx, ny = y + dy;
-        if (is_inside(nx, ny, W, H)){
-            if (gs->board[idx(nx, ny, W)] > 0)
-                return true;
-        }
-    }
-    return false;
-}
+// static bool has_valid_neighbor_at_locked(const game_state_t *gs, int x, int y){
+//     int W = (int)gs->board_width;
+//     int H = (int)gs->board_height;
+//     for (direction_t d = 0; d < NUM_DIRECTIONS; d++){
+//         int dx, dy; 
+//         get_direction_offset(d, &dx, &dy);
+//         int nx = x + dx, ny = y + dy;
+//         if (is_inside(nx, ny, W, H)){
+//             if (gs->board[idx(nx, ny, W)] > 0)
+//                 return true;
+//         }
+//     }
+//     return false;
+// }
 
 static void exec_with_board_args(const char *bin, int board_width, int board_height, const char *error_msg) {
     char wb[16], hb[16];
@@ -125,11 +126,18 @@ static void exec_with_board_args(const char *bin, int board_width, int board_hei
     _exit(EXEC_ERROR_CODE);
 }
 
-static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin) {
+static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin, pipe_info_t *pipes) {
+    printf("DEBUG: Game finishing, killing remaining processes...\n");
     writer_enter(sync);
     gs->game_finished = true;
     writer_exit(sync);
+    
+    // Terminar todos los procesos hijos que sigan vivos con SIGKILL directamente
     for (unsigned i = 0; i < gs->num_players; ++i) {
+        if (pipes[i].alive && pipes[i].pid > 0) {
+            printf("Killing player %u (pid=%d) with SIGKILL\n", i, pipes[i].pid);
+            kill(pipes[i].pid, SIGKILL);
+        }
         sem_post(&sync->player_ready[i]);
     }
     if (view_bin) 
@@ -300,7 +308,7 @@ int main(int argc, char **argv){
 
         time_t elapsed = now.tv_sec - last_valid.tv_sec;
         if (elapsed >= timeout_s) {
-            finish(sync, gs, view_bin);
+            finish(sync, gs, view_bin, pipes);
             break; 
         }
         time_t remain = timeout_s - elapsed;
@@ -315,10 +323,6 @@ int main(int argc, char **argv){
                 continue;
             int x = (int)gs->players[i].x;
             int y = (int)gs->players[i].y;
-            if (!has_valid_neighbor_at_locked(gs, x, y)) {
-                to_block[i] = true;
-                fds_to_close[i] = pipes[i].read_fd;
-            }
         }
         reader_exit(sync);
 
@@ -362,7 +366,7 @@ int main(int argc, char **argv){
         }
 
         if (active_cnt == 0) {
-            finish(sync, gs, view_bin);
+            finish(sync, gs, view_bin, pipes);
             break; 
         }
 
@@ -377,7 +381,7 @@ int main(int argc, char **argv){
             die("Error: select() failed while waiting for player input", ERROR_SELECT);
         }
         if (ready == 0) {
-            finish(sync, gs, view_bin);
+            finish(sync, gs, view_bin, pipes);
             break;
         }
 
@@ -412,14 +416,18 @@ int main(int argc, char **argv){
             }
 
             int was_valid;
+            unsigned int invalid_before, invalid_after;
             writer_enter(sync);
+            invalid_before = gs->players[i].invalid_moves;
             was_valid = apply_move(gs, (int)i, dir);
+            invalid_after = gs->players[i].invalid_moves;
             writer_exit(sync);
 
             if (was_valid) 
                 clock_gettime(CLOCK_MONOTONIC, &last_valid);
 
-            if (was_valid && view_bin) {
+            // Actualizar la vista también cuando aumentan los movimientos inválidos
+            if ((was_valid || invalid_after != invalid_before) && view_bin) {
                 sem_post(&sync->view_ready);
                 sem_wait(&sync->view_done);
             }
@@ -450,9 +458,11 @@ int main(int argc, char **argv){
     for (unsigned i=0;i<gs->num_players;i++){
         int code = -1;
         if (pipes[i].pid>0) {
-            waitpid(pipes[i].pid,&status,0); 
+            // SIGKILL y waitpid bloqueante - debería ser inmediato
+            // kill(pipes[i].pid, SIGKILL);
+            waitpid(pipes[i].pid, &status, 0);
             if (WIFEXITED(status)) code = WEXITSTATUS(status);
-            else if (WIFSIGNALED(status)) code = WTERMSIG(status); 
+            else if (WIFSIGNALED(status)) code = WTERMSIG(status);
         }
         unsigned score, vld, inv;
         char namebuf[MAX_NAME_LEN];
