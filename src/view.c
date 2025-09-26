@@ -105,7 +105,7 @@ static void draw_board_centered(const game_state_t *gs, int reserve_top_rows){
     for (int y = 0; y < draw_h; ++y){
         int sy = row0 + y; 
         if (sy >= maxy) 
-        break;
+            break;
         for (int x = 0; x < draw_w; ++x){
             int sx = col0 + x * cellw; 
             if (sx + (cellw-1) >= maxx) 
@@ -188,12 +188,27 @@ int main(int argc, char **argv){
         refresh();
 
         reader_exit(sync);
-        sem_post(&sync->view_done);
+        
+        if (finished) {
+            int maxy, maxx;
+            getmaxyx(stdscr, maxy, maxx);
+            const char *msg = "Juego Terminado - presiona q para salir";
+            mvprintw(maxy - 1, 0, "%s", msg);
+            refresh();
 
-    // Ignorar input: no permitir salir con 'q'
-    (void)getch();
-        if (finished) 
+            nodelay(stdscr, FALSE);
+            int ch;
+            do {
+                ch = getch();
+            } while (ch != 'q' && ch != 'Q');
+        }
+        
+        sem_post(&sync->view_done);
+        if (finished)
             break;
+
+        int a;
+        
     }
 
     ui_end();

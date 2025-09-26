@@ -26,4 +26,5 @@ if [[ $# -eq 1 ]]; then
 	fi
 fi
 
+rm /dev/shm/*
 exec ./bin/master -v ./bin/view -p "${players[@]}"

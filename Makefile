@@ -6,7 +6,7 @@ run: all
 
 CC=gcc
 CFLAGS=-Wall -g -Iinclude -pthread
-LDFLAGS=-lrt -pthread
+LDFLAGS=-pthread
 
 NCURSES_LIB ?= -lncurses
 LDFLAGS += $(NCURSES_LIB)
@@ -38,4 +38,4 @@ $(BIN_DIR)/view: $(SRC_DIR)/view.c $(OBJ_DIR)/shm.o | $(BIN_DIR)
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) master player view
 
-.PHONY: all clean run 
+.PHONY: all clean run

@@ -141,8 +141,10 @@ static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin,
         }
         sem_post(&sync->player_ready[i]);
     }
-    if (view_bin) 
+    if (view_bin) {
         sem_post(&sync->view_ready);
+        sem_wait(&sync->view_done);
+    }
 }
 
 static game_args_t parse_args(int argc, char **argv) {
@@ -455,8 +457,8 @@ int main(int argc, char **argv){
         }
         next_idx = (next_idx + 1) % gs->num_players;
     }
-
-
+    
+    
     int status;
 
     if (view_pid>0) {
