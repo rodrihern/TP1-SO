@@ -133,6 +133,7 @@ static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin,
     writer_exit(sync);
     
     // Terminar todos los procesos hijos que sigan vivos con SIGKILL directamente
+    // esto lo agregue porque sino el /bin/yes no termina y el master se queda bloqueado en el wait
     for (unsigned i = 0; i < gs->num_players; ++i) {
         if (pipes[i].alive && pipes[i].pid > 0) {
             // printf("Killing player %u (pid=%d) with SIGKILL\n", i, pipes[i].pid);

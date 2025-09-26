@@ -2,14 +2,9 @@ for i in {473..496}; do lsof -p $i | grep FIFO; echo; done;
 
 TODO:
 
-que le cuente los movimientos invalidos al /bin/yes
-
 corregir la apertura de la shm
 
-hacer que no corra cuando el pasaje de parametros es invalido
-
 dejar ver resultados finales en la view
-
 
 
 reporte de cambios realizados:
@@ -19,8 +14,9 @@ pipes de lectura cerrados en los hijos
 con el tema del /bin/yes:
 el master de la catedra corta porque el jugador no hace wait de su semaforo
 en la correccion nos pusieron que no cuenta los movimientos invalidos
-me pasa que cuando llega a una cierta cantidad de movimientos invalidos se desborda y le pasa los movimientos invalidos a otro jugador
-es necesario ver por que pasa esto?
+ahora lo que hace es que cuenta los movimientos invalidos y termina por timeout 
+luego le manda un kill al proceso para que el master no se quede bloqueado en el wait del /bin/yes
 
+hacer que no corra cuando el pasaje de parametros es invalido
 
 
