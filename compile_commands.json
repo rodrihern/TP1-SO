@@ -1,0 +1,72 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-pthread",
+      "-c",
+      "-o",
+      "obj/shm.o",
+      "src/shm.c"
+    ],
+    "directory": "/root/tp1",
+    "file": "/root/tp1/src/shm.c",
+    "output": "/root/tp1/obj/shm.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-pthread",
+      "obj/shm.o",
+      "-pthread",
+      "-o",
+      "bin/master",
+      "src/master.c"
+    ],
+    "directory": "/root/tp1",
+    "file": "/root/tp1/src/master.c",
+    "output": "/root/tp1/bin/master"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-pthread",
+      "obj/shm.o",
+      "-pthread",
+      "-o",
+      "bin/player",
+      "src/player.c"
+    ],
+    "directory": "/root/tp1",
+    "file": "/root/tp1/src/player.c",
+    "output": "/root/tp1/bin/player"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-Wall",
+      "-g",
+      "-Iinclude",
+      "-pthread",
+      "obj/shm.o",
+      "-pthread",
+      "-o",
+      "bin/view",
+      "src/view.c"
+    ],
+    "directory": "/root/tp1",
+    "file": "/root/tp1/src/view.c",
+    "output": "/root/tp1/bin/view"
+  }
+]

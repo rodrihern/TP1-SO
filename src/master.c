@@ -42,7 +42,7 @@ typedef struct {
 
 
 static void die(const char *m, int error_code) { 
-    perror(m); 
+    puts(m); 
     exit(error_code); 
 }
 
@@ -127,7 +127,7 @@ static void exec_with_board_args(const char *bin, int board_width, int board_hei
 }
 
 static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin, pipe_info_t *pipes) {
-    printf("DEBUG: Game finishing, killing remaining processes...\n");
+    // printf("DEBUG: Game finishing, killing remaining processes...\n");
     writer_enter(sync);
     gs->game_finished = true;
     writer_exit(sync);
@@ -135,7 +135,7 @@ static void finish(game_sync_t * sync, game_state_t * gs, const char * view_bin,
     // Terminar todos los procesos hijos que sigan vivos con SIGKILL directamente
     for (unsigned i = 0; i < gs->num_players; ++i) {
         if (pipes[i].alive && pipes[i].pid > 0) {
-            printf("Killing player %u (pid=%d) with SIGKILL\n", i, pipes[i].pid);
+            // printf("Killing player %u (pid=%d) with SIGKILL\n", i, pipes[i].pid);
             kill(pipes[i].pid, SIGKILL);
         }
         sem_post(&sync->player_ready[i]);
@@ -155,10 +155,22 @@ static game_args_t parse_args(int argc, char **argv) {
     args.num_players = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-w") && argc > i + 1)
+        if (!strcmp(argv[i], "-w") && argc > i + 1) {
             args.board_width = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "-h") && argc > i + 1)
+            if (args.board_width < MIN_BOARD_SIZE || args.board_height > MAX_BOARD_SIZE) {
+                printf("width must be between %d and %d\n", MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+                die("Invalid width", ERROR_INVALID_ARGS);
+            }
+        }
+        else if (!strcmp(argv[i], "-h") && argc > i + 1) {
             args.board_height = atoi(argv[++i]);
+            if (args.board_height < MIN_BOARD_SIZE || args.board_height > MAX_BOARD_SIZE) {
+                printf("height must be between %d and %d \n", MIN_BOARD_SIZE, MAX_BOARD_SIZE);
+                die("Invalid height", ERROR_INVALID_ARGS);
+            }
+        }
+        
+
         else if (!strcmp(argv[i], "-d") && argc > i + 1)
             args.delay_ms = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-t") && argc > i + 1)
@@ -321,8 +333,8 @@ int main(int argc, char **argv){
         for (unsigned i = 0; i < gs->num_players; i++){
             if (gs->players[i].is_blocked) 
                 continue;
-            int x = (int)gs->players[i].x;
-            int y = (int)gs->players[i].y;
+            // int x = (int)gs->players[i].x;
+            // int y = (int)gs->players[i].y;
         }
         reader_exit(sync);
 
