@@ -13,7 +13,7 @@
 
 // Valores por defecto de tiempo
 #define DEFAULT_DELAY_MS 200
-#define DEFAULT_TIMEOUT_S 100
+#define DEFAULT_TIMEOUT_S 10
 
 // Dimensiones y límites del juego
 #define MAX_PLAYERS 9

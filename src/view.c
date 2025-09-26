@@ -190,10 +190,13 @@ int main(int argc, char **argv){
         reader_exit(sync);
         
         if (finished) {
-            int maxy, maxx;
-            getmaxyx(stdscr, maxy, maxx);
+            int maxy = getmaxy(stdscr);
+          
             const char *msg = "Juego Terminado - presiona q para salir";
+            attron(A_BOLD);
             mvprintw(maxy - 1, 0, "%s", msg);
+            attroff(A_BOLD);
+         
             refresh();
 
             nodelay(stdscr, FALSE);
@@ -207,7 +210,6 @@ int main(int argc, char **argv){
         if (finished)
             break;
 
-        int a;
         
     }
 

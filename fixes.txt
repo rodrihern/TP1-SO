@@ -4,7 +4,7 @@ TODO:
 
 corregir la apertura de la shm
 
-dejar ver resultados finales en la view
+
 
 
 reporte de cambios realizados:
@@ -19,4 +19,4 @@ luego le manda un kill al proceso para que el master no se quede bloqueado en el
 
 hacer que no corra cuando el pasaje de parametros es invalido
 
-
+dejar ver resultados finales en la view
