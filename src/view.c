@@ -156,7 +156,7 @@ int main(int argc, char **argv){
     int W = atoi(argv[1]), H = atoi(argv[2]);
 
     shm_adt state_h, sync_h;
-    if (shm_region_open(&state_h, SHM_STATE, game_state_size(W,H)) == -1) { 
+    if (shm_region_open_readonly(&state_h, SHM_STATE, game_state_size(W,H)) == -1) { 
         perror("state open"); 
         return ERROR_SHM_ATTACH; 
     }
@@ -166,7 +166,7 @@ int main(int argc, char **argv){
     }
 
     game_state_t *gs=NULL; game_sync_t *sync=NULL;
-    if (game_state_map(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) { 
+    if (game_state_map_readonly(state_h, (unsigned short)W, (unsigned short)H, &gs) == -1) {
         perror("map state"); 
         return ERROR_SHM_ATTACH; 
     }

@@ -32,6 +32,11 @@ static void *map_rw(int fd, size_t sz) {
     return (p == MAP_FAILED) ? NULL : p;
 }
 
+static void *map_ro(int fd, size_t sz) { 
+    void *p = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);
+    return (p == MAP_FAILED) ? NULL : p;
+}
+
 static int unmap_if_mapped(struct shm_cdt *r) { 
     if (r->base && r->size) { 
         if (munmap(r->base, r->size) == -1)  
@@ -71,7 +76,7 @@ static int init_game_sync_semaphores(game_sync_t *sync){
 
 
 
-int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
+static int shm_region_open_internal(shm_adt *out_handle, const char *name, size_t size_bytes, bool readonly) {
     if (!out_handle || !name || size_bytes == 0) { 
         errno = EINVAL; 
         return -1; 
@@ -87,29 +92,41 @@ int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
         return -1;
     }
 
-    h->fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
-
-    if (h->fd != -1) { 
-        h->owner = true;
-        h->size  = size_bytes;
-        if (ensure_size(h->fd, size_bytes) == -1) { 
-            int e = errno;
-            close(h->fd);
-            shm_unlink(name);
-            free_shm_handle(h);
-            errno = e;
-            return -1; 
+    // Solo el proceso que va a escribir intenta crear con O_CREAT | O_EXCL
+    if (!readonly) {
+        h->fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
+        
+        if (h->fd != -1) { 
+            h->owner = true;
+            h->size  = size_bytes;
+            if (ensure_size(h->fd, size_bytes) == -1) { 
+                int e = errno;
+                close(h->fd);
+                shm_unlink(name);
+                free_shm_handle(h);
+                errno = e;
+                return -1; 
+            }
+            (void)fchmod(h->fd, 0666);
+        } else if (errno == EEXIST) { 
+            h->fd = shm_open(name, O_RDWR, 0);
+            h->owner = false;
         }
-        (void)fchmod(h->fd, 0666);
-    } else if (errno == EEXIST) { 
-        h->fd = shm_open(name, O_RDWR, 0);
+    } else {
+        // Procesos readonly solo abren, no crean
+        h->fd = shm_open(name, O_RDONLY, 0);
+        h->owner = false;
+    }
 
-        if (h->fd == -1) {
-            int e = errno;
-            free_shm_handle(h);
-            errno = e;
-            return -1;
-        }
+    if (h->fd == -1) {
+        int e = errno;
+        free_shm_handle(h);
+        errno = e;
+        return -1;
+    }
+
+    // Obtener tamaño de la región existente
+    if (!h->owner) {
         struct stat st;
         if (fstat(h->fd, &st) == -1) {
             int e = errno;
@@ -118,17 +135,20 @@ int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
             errno = e;
             return -1;
         }
-        h->size  = (size_t)st.st_size; 
-        h->owner = false;
-    } else { 
-        int e = errno;
-        free_shm_handle(h);
-        errno = e;
-        return -1;
+        h->size = (size_t)st.st_size; 
     }
+
     h->base = NULL;
     *out_handle = h;
     return 0;
+}
+
+int shm_region_open(shm_adt *out_handle, const char *name, size_t size_bytes) {
+    return shm_region_open_internal(out_handle, name, size_bytes, false);
+}
+
+int shm_region_open_readonly(shm_adt *out_handle, const char *name, size_t size_bytes) {
+    return shm_region_open_internal(out_handle, name, size_bytes, true);
 }
 
 int shm_region_close(shm_adt handle) {
@@ -150,7 +170,7 @@ int shm_region_close(shm_adt handle) {
 
 
 
-int game_state_map(shm_adt handle, unsigned short width, unsigned short height, game_state_t **out_state) {
+static int game_state_map_internal(shm_adt handle, unsigned short width, unsigned short height, game_state_t **out_state, bool readonly) {
     if (!handle || !out_state || width == 0 || height == 0) { 
         errno = EINVAL; 
         return -1; 
@@ -172,7 +192,7 @@ int game_state_map(shm_adt handle, unsigned short width, unsigned short height, 
             errno = EINVAL; 
             return -1; 
         } 
-        h->base = map_rw(h->fd, h->size);
+        h->base = readonly ? map_ro(h->fd, h->size) : map_rw(h->fd, h->size);
         if (!h->base) 
             return -1;
     }
@@ -188,6 +208,14 @@ int game_state_map(shm_adt handle, unsigned short width, unsigned short height, 
         gs->game_finished = false;
     }
     return 0;
+}
+
+int game_state_map(shm_adt handle, unsigned short width, unsigned short height, game_state_t **out_state) {
+    return game_state_map_internal(handle, width, height, out_state, false);
+}
+
+int game_state_map_readonly(shm_adt handle, unsigned short width, unsigned short height, game_state_t **out_state) {
+    return game_state_map_internal(handle, width, height, out_state, true);
 }
 
 

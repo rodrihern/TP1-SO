@@ -47,11 +47,11 @@ int find_player_index(game_state_t *game_state, game_sync_t *sync, pid_t me) {
 }
 
 int init_shared_memory(int width, int height, shm_adt *state_h, shm_adt *sync_h, game_state_t **game_state, game_sync_t **sync) {
-    if (shm_region_open(state_h, SHM_STATE, game_state_size(width, height)) == -1)
+    if (shm_region_open_readonly(state_h, SHM_STATE, game_state_size(width, height)) == -1)
         return ERROR_SHM_ATTACH;
     if (shm_region_open(sync_h, SHM_SYNC, sizeof(game_sync_t)) == -1)
         return ERROR_SHM_ATTACH;
-    if (game_state_map(*state_h, (unsigned short)width, (unsigned short)height, game_state) == -1)
+    if (game_state_map_readonly(*state_h, (unsigned short)width, (unsigned short)height, game_state) == -1)
         return ERROR_SHM_ATTACH;
     if (game_sync_map(*sync_h, sync) == -1)
         return ERROR_SHM_ATTACH;
