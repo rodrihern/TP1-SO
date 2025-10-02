@@ -6,6 +6,8 @@ for i in {[master_pid]..[ultimo_pipe_pid]}; do lsof -p $i | grep FIFO; echo; don
 
 Reporte de cambios realizados:
 
+ahora el juego no arranca si pasan mal las dimensiones del tablero
+
 pipes de lectura cerrados en los hijos
 
 con el tema del /bin/yes:
@@ -13,6 +15,14 @@ el master de la catedra corta porque el jugador no hace wait de su semaforo
 en la correccion nos pusieron que no cuenta los movimientos invalidos
 ahora lo que hace es que cuenta los movimientos invalidos y termina por timeout 
 luego le manda un kill al proceso para que el master no se quede bloqueado en el wait del /bin/yes
+
+nosotros no veiamos los movimientos invalidos porque 
+solo actualizabamos la vista con movimientos validos,
+ademas el timeout default que teniamos era de 100 segundos en lugar de 10
+por eso tardaba mucho en cortar
+
+Como el master se quedaba bloqueado en el wait del /bin/yes
+Agregamos que le mande un sigkill
 
 hacer que no corra cuando el pasaje de parametros es invalido
 

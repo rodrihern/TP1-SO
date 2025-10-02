@@ -160,7 +160,7 @@ static game_args_t parse_args(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-w") && argc > i + 1) {
             args.board_width = atoi(argv[++i]);
-            if (args.board_width < MIN_BOARD_SIZE || args.board_height > MAX_BOARD_SIZE) {
+            if (args.board_width < MIN_BOARD_SIZE || args.board_width > MAX_BOARD_SIZE) {
                 printf("width must be between %d and %d\n", MIN_BOARD_SIZE, MAX_BOARD_SIZE);
                 die("Invalid width", ERROR_INVALID_ARGS);
             }
@@ -281,8 +281,8 @@ int main(int argc, char **argv){
         pid_t pid = fork();
         if (pid < 0) 
             die("Error: could not fork player process", ERROR_FORK);
-        if (pid == 0) { // TODO: cerrar todos los pipes de los hijos
-            for (int j = 0; j < i; j++) {
+        if (pid == 0) { 
+            for (int j = 0; j < i; j++) { //  cerrar todos los pipes de los hijos
                 close(pipes[j].read_fd);
             }
             dup2(pipes[i].write_fd, 1); 
