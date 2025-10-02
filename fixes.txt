@@ -29,3 +29,7 @@ hacer que no corra cuando el pasaje de parametros es invalido
 dejar ver resultados finales en la view
 
 Ahora hacemos el open y el map del game_state solo con permisos de lectura para la view y el player
+
+
+
+
